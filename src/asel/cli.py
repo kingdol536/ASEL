@@ -3,6 +3,7 @@
     asel run scenarios/warehouse-small-a.yaml [--seed 7] [--out experiments/runs]
     asel replay-check experiments/runs/<scenario>/<run_dir>
     asel compare-logs <run_dir_a> <run_dir_b>
+    asel batch scenarios/a.yaml scenarios/b.yaml --seeds 0-29 [--jobs 4]
 """
 
 from __future__ import annotations
@@ -50,6 +51,16 @@ def _cmd_compare_logs(args: argparse.Namespace) -> int:
     return 0 if c.logically_equal else 1
 
 
+def _cmd_batch(args: argparse.Namespace) -> int:
+    from asel.batch import parse_seeds, run_batch
+
+    d = run_batch(args.scenarios, parse_seeds(args.seeds), Path(args.out), jobs=args.jobs)
+    info = json.loads((d / "batch.json").read_text(encoding="utf-8"))
+    print(f"batch_dir: {d}")
+    print(json.dumps({k: info[k] for k in ("n_runs", "throughput", "invariant_violations_total")}, indent=2))
+    return 0 if info["invariant_violations_total"] == 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="asel")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -69,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("a")
     m.add_argument("b")
     m.set_defaults(func=_cmd_compare_logs)
+
+    b = sub.add_parser("batch", help="run scenarios x seeds headless")
+    b.add_argument("scenarios", nargs="+")
+    b.add_argument("--seeds", default="0-29", help="e.g. 0-29 or 1,2,5")
+    b.add_argument("--out", default="experiments/batches")
+    b.add_argument("--jobs", type=int, default=1, help="parallel worker processes")
+    b.set_defaults(func=_cmd_batch)
 
     args = ap.parse_args(argv)
     return args.func(args)
