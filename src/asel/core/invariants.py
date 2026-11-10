@@ -18,6 +18,8 @@ def check_invariants(state: WorldState) -> list[str]:
     for res in state.resources.values():
         if res.capacity < 0:
             v.append(f"resource {res.id}: negative capacity {res.capacity}")
+        if not 0 <= res.out_of_service <= res.capacity:
+            v.append(f"resource {res.id}: out_of_service {res.out_of_service} outside [0, {res.capacity}]")
         if res.reserved > res.capacity:
             v.append(f"resource {res.id}: reserved {res.reserved} > capacity {res.capacity}")
         if len(set(res.holders)) != len(res.holders):
@@ -66,7 +68,7 @@ def check_invariants(state: WorldState) -> list[str]:
         if t.status == TaskStatus.COMPLETED:
             if t.started_at is None or t.completed_at is None:
                 v.append(f"task {t.id}: COMPLETED without timestamps")
-            elif t.completed_at < t.started_at + t.duration:
+            elif t.duration is not None and t.completed_at < t.started_at + t.duration:
                 v.append(f"task {t.id}: completed early")
 
     # 6. 선행 작업의 시작은 후속 작업보다 앞선다 (완료 시각 기준)

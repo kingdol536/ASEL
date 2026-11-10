@@ -75,20 +75,21 @@ def test_cli_run_and_replay_check(tmp_path, capsys):
 
     assert main(["replay-check", str(d)]) == 0
 
-    # 로그 변조 1: 처리 시간 값을 바꾸면 재생은 되지만 기록된 최종 상태와 달라야 한다
-    path = d / "events.ndjson"
-    original = path.read_text(encoding="utf-8")
-    lines = original.splitlines()
-    idx = next(i for i, l in enumerate(lines) if '"TaskCreated"' in l)
-    ev = json.loads(lines[idx])
-    ev["payload"]["duration"] += 1.0
-    lines[idx] = json.dumps(ev)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # 로그 변조 1: 비공개 로그의 처리 시간을 바꾸면 재생은 되지만 기록된 최종 상태와 달라야 한다
+    priv = d / "private_events.ndjson"
+    plines = priv.read_text(encoding="utf-8").splitlines()
+    pidx = next(i for i, l in enumerate(plines) if "duration" in json.loads(l)["private"])
+    rec = json.loads(plines[pidx])
+    rec["private"]["duration"] += 1.0
+    plines[pidx] = json.dumps(rec)
+    priv.write_text("\n".join(plines) + "\n", encoding="utf-8")
     assert main(["replay-check", str(d)]) == 1
 
-    # 로그 변조 2: 작업 생성 이벤트를 지우면 이후 이벤트를 적용할 수 없다
-    lines = original.splitlines()
+    # 로그 변조 2: 공개 로그에서 작업 생성 이벤트를 지우면 이후 이벤트를 적용할 수 없다
+    path = d / "events.ndjson"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    idx = next(i for i, l in enumerate(lines) if '"TaskCreated"' in l)
     del lines[idx]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    with pytest.raises(ReducerError):
+    with pytest.raises((ReducerError, ValueError)):  # 고아 비공개 기록 또는 적용 불가
         main(["replay-check", str(d)])

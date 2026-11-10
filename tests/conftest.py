@@ -13,7 +13,12 @@ SCENARIO_A = ROOT / "scenarios" / "warehouse-small-a.yaml"
 
 DISPATCHER = "dispatcher.test"
 GRANTS = {
-    ENV_ACTOR: {ActionKind.CREATE_TASK, ActionKind.COMPLETE_TASK},
+    ENV_ACTOR: {
+        ActionKind.CREATE_TASK,
+        ActionKind.COMPLETE_TASK,
+        ActionKind.BEGIN_OUTAGE,
+        ActionKind.END_OUTAGE,
+    },
     DISPATCHER: {ActionKind.START_TASK},
 }
 
@@ -33,7 +38,8 @@ def create(tid: str, cap: str = "pick", duration: float = 10.0, preds=()) -> Act
     return Action(
         ENV_ACTOR,
         ActionKind.CREATE_TASK,
-        {"id": tid, "capability": cap, "duration": duration, "predecessors": list(preds)},
+        {"id": tid, "capability": cap, "predecessors": list(preds)},
+        private={"duration": duration},
     )
 
 

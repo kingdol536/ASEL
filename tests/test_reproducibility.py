@@ -6,8 +6,8 @@ from asel.core.actions import Action, ActionKind
 from asel.core.model import TaskStatus
 from asel.core.simulator import Simulator
 from asel.core.world import ENV_ACTOR, World, replay
-from asel.domains.warehouse import OrderArrivals, world_init_payload
-from asel.io.eventlog import encode_events, events_sha256, read_ndjson
+from asel.domains.warehouse import WarehouseWorkload, world_init_payload
+from asel.io.eventlog import encode_events, encode_public, events_sha256, read_public, read_run
 from asel.runner import run_scenario, write_run
 
 
@@ -27,8 +27,8 @@ def test_different_seed_different_log(scenario_a):
 def test_replay_from_written_log_matches_final_state(scenario_a, tmp_path):
     res = run_scenario(scenario_a, seed=7)
     run_dir = write_run(res, tmp_path)
-    events = read_ndjson(run_dir / "events.ndjson")
-    assert encode_events(events) == encode_events(res.events)  # 파일 왕복 무손실
+    events = read_run(run_dir)
+    assert encode_events(events) == encode_events(res.events)  # 공개+비공개 파일 왕복 무손실
     assert replay(events).snapshot() == res.world.state.snapshot()
 
 
@@ -62,10 +62,11 @@ class _LifoDispatcher:
 
 
 def _run_with(sc, dispatcher, seed):
-    w = World("x", {ENV_ACTOR: {ActionKind.CREATE_TASK, ActionKind.COMPLETE_TASK},
-                    dispatcher.actor_id: {ActionKind.START_TASK}})
+    from asel.runner import default_grants
+
+    w = World("x", default_grants(dispatcher.actor_id))
     w.initialize(*world_init_payload(sc))
-    Simulator(w, OrderArrivals(sc, seed), dispatcher).run(sc.sim_time_limit)
+    Simulator(w, WarehouseWorkload(sc, seed), dispatcher).run(sc.sim_time_limit)
     return w.state
 
 
@@ -93,10 +94,9 @@ def test_compare_logs_byte_and_logical(scenario_a):
 
     # 마지막 자리 수준의 차이는 논리적으로 같다고 판정, 큰 차이는 다르다고 판정
     i = next(i for i, e in enumerate(b) if e.event_type == "TaskCreated")
-    tiny = dict(b[i].payload, duration=b[i].payload["duration"] * (1 + 1e-15))
-    big = dict(b[i].payload, duration=b[i].payload["duration"] + 1.0)
-    for payload, expect in ((tiny, True), (big, False)):
-        d = b[i].to_dict() | {"payload": payload}
+    dur = b[i].private["duration"]
+    for hidden, expect in (({"duration": dur * (1 + 1e-15)}, True), ({"duration": dur + 1.0}, False)):
+        d = b[i].to_dict() | {"private": hidden}
         bb = b[:i] + [Event.from_dict(d)] + b[i + 1 :]
         r = compare_logs(a, bb, encode_events(a), encode_events(bb))
         assert not r.byte_equal

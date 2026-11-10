@@ -161,3 +161,46 @@ def test_clock_cannot_go_backwards():
     w.advance_to(5.0)
     with pytest.raises(ValueError):
         w.advance_to(4.0)
+
+
+# -- 고장 (#4) ---------------------------------------------------------------
+
+
+def _outage(kind, entity, units, actor="env"):
+    return Action(actor, kind, {"entity": entity, "units": units}, private={"cause": "test"})
+
+
+def test_outage_blocks_new_starts_but_running_task_completes():
+    w = make_world([("c", ["pick"], 2)])
+    w.submit(create("a", duration=10))
+    w.submit(create("b", duration=10))
+    w.submit(create("c2", duration=10))
+    assert w.submit(start("a", "c")).accepted
+    assert w.submit(_outage("begin_outage", "c", 1)).accepted  # 2단위 중 1단위 고장
+    assert w.state.resources["c"].available == 0
+    assert any("no free capacity" in r for r in _rejected_without_change(w, start("b", "c")))
+    w.advance_to(10)
+    assert w.submit(complete("a")).accepted  # 진행 중 작업은 끝까지
+    assert w.submit(start("b", "c")).accepted  # 남은 1단위로 다시 시작 가능
+    assert w.submit(_outage("end_outage", "c", 1)).accepted
+    assert w.submit(start("c2", "c")).accepted
+    assert check_invariants(w.state) == []
+
+
+def test_full_outage_with_running_task_keeps_invariants():
+    w = make_world([("c", ["pick"], 1)])
+    w.submit(create("a", duration=10))
+    w.submit(start("a", "c"))
+    assert w.submit(_outage("begin_outage", "c", 1)).accepted
+    assert w.state.resources["c"].available == -1  # 고장 중 진행 작업이 남은 상태 (잠정 규칙)
+    assert check_invariants(w.state) == []
+
+
+def test_outage_validation():
+    w = make_world([("c", ["pick"], 1)])
+    assert _rejected_without_change(w, _outage("begin_outage", "c", 2))
+    assert _rejected_without_change(w, _outage("end_outage", "c", 1))
+    assert _rejected_without_change(w, _outage("begin_outage", "ghost", 1))
+    assert _rejected_without_change(w, _outage("begin_outage", "c", 0))
+    assert _rejected_without_change(w, _outage("begin_outage", "c", True))
+    assert _rejected_without_change(w, _outage("begin_outage", "c", 1, actor="dispatcher.test"))

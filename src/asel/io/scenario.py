@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
-SCENARIO_SCHEMA_VERSION = "0.1"
+SCENARIO_SCHEMA_VERSION = "0.2"  # 0.2: faults, piecewise_poisson 추가
 
 
 class _Strict(BaseModel):
@@ -64,15 +64,55 @@ class PoissonArrival(_Strict):
     rate_per_min: PositiveFloat
 
 
+class RateSegment(_Strict):
+    start_s: float = Field(ge=0)
+    rate_per_min: float = Field(ge=0)  # 0 이면 그 구간에는 도착 없음
+
+
+class PiecewisePoissonArrival(_Strict):
+    """구간별로 도착률이 다른 포아송 과정 (수요 급증 등)."""
+
+    type: Literal["piecewise_poisson"]
+    segments: list[RateSegment] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        starts = [s.start_s for s in self.segments]
+        if starts[0] != 0:
+            raise ValueError("first segment must start at 0")
+        if any(b <= a for a, b in zip(starts, starts[1:])):
+            raise ValueError("segment starts must be strictly increasing")
+        return self
+
+
+ArrivalProcess = Annotated[PoissonArrival | PiecewisePoissonArrival, Field(discriminator="type")]
+
+
 class JobStep(_Strict):
     capability: str = Field(min_length=1)
     service_time: Distribution
 
 
 class Workload(_Strict):
-    arrival_process: PoissonArrival
+    arrival_process: ArrivalProcess
     job_template: list[JobStep] = Field(min_length=1)  # 앞 단계가 다음 단계의 선행 작업
     max_arrivals: int | None = Field(default=None, ge=0)
+
+
+class FaultSpec(_Strict):
+    """셀 고장 (숨겨진 참값). 원인과 계획된 종료 시각은 운영 주체에게 공개하지 않는다."""
+
+    entity: str
+    start_s: float = Field(ge=0)
+    end_s: float
+    units: int | None = Field(default=None, ge=1)  # None = 셀 용량 전체
+    cause: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _order(self):
+        if self.end_s <= self.start_s:
+            raise ValueError("fault end_s must be after start_s")
+        return self
 
 
 class ConstraintSpec(BaseModel):
@@ -88,7 +128,7 @@ class ObjectiveSpec(BaseModel):
 
 
 class Scenario(_Strict):
-    schema_version: Literal["0.1"]
+    schema_version: Literal["0.1", "0.2"]
     scenario_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     domain: Literal["warehouse_like"]
     seed: int
@@ -96,9 +136,18 @@ class Scenario(_Strict):
     entities: list[EntitySpec] = Field(min_length=1)
     relations: list[RelationSpec] = Field(default_factory=list)
     workload: Workload
+    faults: list[FaultSpec] = Field(default_factory=list)
     constraints: list[ConstraintSpec] = Field(default_factory=list)
     objectives: list[ObjectiveSpec] = Field(default_factory=list)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _version_features(self):
+        if self.schema_version == "0.1" and (
+            self.faults or isinstance(self.workload.arrival_process, PiecewisePoissonArrival)
+        ):
+            raise ValueError("faults / piecewise_poisson require schema_version '0.2'")
+        return self
 
     @model_validator(mode="after")
     def _references(self):
@@ -108,6 +157,24 @@ class Scenario(_Strict):
         for r in self.relations:
             if r.source not in ids or r.target not in ids:
                 raise ValueError(f"relation {r.source}->{r.target} references unknown entity")
+        cap = {e.id: e.capacity for e in self.entities}
+        for i, f in enumerate(self.faults):
+            if f.entity not in cap:
+                raise ValueError(f"fault {i} references unknown entity {f.entity!r}")
+            if (f.units or cap[f.entity]) > cap[f.entity]:
+                raise ValueError(f"fault {i} takes more units than {f.entity} has")
+        # 같은 셀의 고장이 겹칠 때 합계가 용량을 넘지 않는지 (시각 순 스윕)
+        for ent in cap:
+            edges = []
+            for f in self.faults:
+                if f.entity == ent:
+                    u = f.units or cap[ent]
+                    edges += [(f.start_s, 1, u), (f.end_s, 0, -u)]  # 같은 시각이면 종료(0) 먼저
+            load = 0
+            for _, _, du in sorted(edges):
+                load += du
+                if load > cap[ent]:
+                    raise ValueError(f"overlapping faults exceed capacity of {ent}")
         offered = {c for e in self.entities if e.capacity > 0 for c in e.capabilities}
         for step in self.workload.job_template:
             if step.capability not in offered:

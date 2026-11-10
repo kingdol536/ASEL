@@ -63,6 +63,7 @@ class Resource:
     id: str
     capacity: int
     holders: list[str] = field(default_factory=list)  # 예약 중인 task id (예약 순서 유지)
+    out_of_service: int = 0  # 고장으로 쓸 수 없는 용량 단위 수
 
     @property
     def reserved(self) -> int:
@@ -70,14 +71,15 @@ class Resource:
 
     @property
     def available(self) -> int:
-        return self.capacity - self.reserved
+        """새 작업에 쓸 수 있는 용량. 고장 중 진행 작업이 남아 있으면 음수가 될 수 있다(잠정 규칙)."""
+        return self.capacity - self.out_of_service - self.reserved
 
 
 @dataclass
 class Task:
     id: str
     capability: str
-    duration: float  # 실제 처리 시간. 비공개 필드(M3에서 관측 투영 시 숨김)
+    duration: float | None  # 실제 처리 시간 = 숨겨진 참값. 공개 로그만으로 재생하면 None
     predecessors: tuple[str, ...] = ()
     status: TaskStatus = TaskStatus.CREATED
     created_index: int = 0  # 생성 순번. FIFO 동률 처리용
@@ -111,7 +113,7 @@ class WorldState:
                 {"source": r.source, "target": r.target, "kind": r.kind} for r in self.relations
             ],
             "resources": {
-                k: {"capacity": r.capacity, "holders": list(r.holders)}
+                k: {"capacity": r.capacity, "holders": list(r.holders), "out_of_service": r.out_of_service}
                 for k, r in sorted(self.resources.items())
             },
             "tasks": {

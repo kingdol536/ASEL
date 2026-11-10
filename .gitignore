@@ -10,6 +10,7 @@ dist/
 
 # 실험 실행 결과(재생성 가능). 공개할 결과는 experiments/reports/에 따로 둔다.
 experiments/runs/
+experiments/batches/
 
 # 비밀값
 .env
@@ -18,3 +19,4 @@ experiments/runs/
 # 편집기
 .vscode/
 .idea/
+.claude/launch.json
