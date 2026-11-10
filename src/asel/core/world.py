@@ -113,6 +113,18 @@ def apply_event(state: WorldState, ev: Event) -> None:
             raise ReducerError(f"release of non-held reservation {p.get('task')} on {ev.entity_id}")
         res.holders.remove(p["task"])
 
+    elif et == EventType.RESOURCE_OUTAGE_STARTED:
+        res = state.resources.get(ev.entity_id)
+        if res is None or res.out_of_service + p["units"] > res.capacity:
+            raise ReducerError(f"invalid outage start on {ev.entity_id}")
+        res.out_of_service += p["units"]
+
+    elif et == EventType.RESOURCE_OUTAGE_ENDED:
+        res = state.resources.get(ev.entity_id)
+        if res is None or p["units"] > res.out_of_service:
+            raise ReducerError(f"invalid outage end on {ev.entity_id}")
+        res.out_of_service -= p["units"]
+
     elif et in (EventType.ACTION_PROPOSED, EventType.ACTION_REJECTED, EventType.RUN_ENDED):
         pass  # 상태 변경 없음 (시각만 갱신)
 
@@ -256,7 +268,22 @@ class World:
             r += self._validate_start(action.params)
         elif action.kind == ActionKind.COMPLETE_TASK:
             r += self._validate_complete(action.params)
+        elif action.kind in (ActionKind.BEGIN_OUTAGE, ActionKind.END_OUTAGE):
+            r += self._validate_outage(action.kind, action.params)
         return r
+
+    def _validate_outage(self, kind: str, p: dict) -> list[str]:
+        res = self.state.resources.get(_as_id(p.get("entity")))
+        if res is None:
+            return [f"{kind}: unknown resource {p.get('entity')!r}"]
+        units = p.get("units")
+        if isinstance(units, bool) or not isinstance(units, int) or units < 1:
+            return [f"{kind}: units must be a positive integer"]
+        if kind == ActionKind.BEGIN_OUTAGE and res.out_of_service + units > res.capacity:
+            return [f"{kind}: {res.id} cannot lose {units} more units (capacity {res.capacity})"]
+        if kind == ActionKind.END_OUTAGE and units > res.out_of_service:
+            return [f"{kind}: {res.id} has only {res.out_of_service} units out of service"]
+        return []
 
     def _validate_create(self, p: dict, hidden: dict) -> list[str]:
         r = []
@@ -376,6 +403,13 @@ class World:
                         (EventType.TASK_STATE_CHANGED, sid, {"from": "WAITING", "to": "READY"}, None)
                     )
             return effects
+
+        if a.kind == ActionKind.BEGIN_OUTAGE:
+            hidden = {"fault": dict(a.private)} if a.private else None
+            return [(EventType.RESOURCE_OUTAGE_STARTED, p["entity"], {"units": p["units"]}, hidden)]
+
+        if a.kind == ActionKind.END_OUTAGE:
+            return [(EventType.RESOURCE_OUTAGE_ENDED, p["entity"], {"units": p["units"]}, None)]
 
         raise AssertionError(f"unhandled kind {a.kind}")
 

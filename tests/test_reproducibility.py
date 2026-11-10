@@ -6,7 +6,7 @@ from asel.core.actions import Action, ActionKind
 from asel.core.model import TaskStatus
 from asel.core.simulator import Simulator
 from asel.core.world import ENV_ACTOR, World, replay
-from asel.domains.warehouse import OrderArrivals, world_init_payload
+from asel.domains.warehouse import WarehouseWorkload, world_init_payload
 from asel.io.eventlog import encode_events, encode_public, events_sha256, read_public, read_run
 from asel.runner import run_scenario, write_run
 
@@ -62,10 +62,11 @@ class _LifoDispatcher:
 
 
 def _run_with(sc, dispatcher, seed):
-    w = World("x", {ENV_ACTOR: {ActionKind.CREATE_TASK, ActionKind.COMPLETE_TASK},
-                    dispatcher.actor_id: {ActionKind.START_TASK}})
+    from asel.runner import default_grants
+
+    w = World("x", default_grants(dispatcher.actor_id))
     w.initialize(*world_init_payload(sc))
-    Simulator(w, OrderArrivals(sc, seed), dispatcher).run(sc.sim_time_limit)
+    Simulator(w, WarehouseWorkload(sc, seed), dispatcher).run(sc.sim_time_limit)
     return w.state
 
 

@@ -13,7 +13,12 @@ SCENARIO_A = ROOT / "scenarios" / "warehouse-small-a.yaml"
 
 DISPATCHER = "dispatcher.test"
 GRANTS = {
-    ENV_ACTOR: {ActionKind.CREATE_TASK, ActionKind.COMPLETE_TASK},
+    ENV_ACTOR: {
+        ActionKind.CREATE_TASK,
+        ActionKind.COMPLETE_TASK,
+        ActionKind.BEGIN_OUTAGE,
+        ActionKind.END_OUTAGE,
+    },
     DISPATCHER: {ActionKind.START_TASK},
 }
 

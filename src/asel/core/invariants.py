@@ -18,6 +18,8 @@ def check_invariants(state: WorldState) -> list[str]:
     for res in state.resources.values():
         if res.capacity < 0:
             v.append(f"resource {res.id}: negative capacity {res.capacity}")
+        if not 0 <= res.out_of_service <= res.capacity:
+            v.append(f"resource {res.id}: out_of_service {res.out_of_service} outside [0, {res.capacity}]")
         if res.reserved > res.capacity:
             v.append(f"resource {res.id}: reserved {res.reserved} > capacity {res.capacity}")
         if len(set(res.holders)) != len(res.holders):

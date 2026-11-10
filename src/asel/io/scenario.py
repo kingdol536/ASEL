@@ -99,6 +99,22 @@ class Workload(_Strict):
     max_arrivals: int | None = Field(default=None, ge=0)
 
 
+class FaultSpec(_Strict):
+    """셀 고장 (숨겨진 참값). 원인과 계획된 종료 시각은 운영 주체에게 공개하지 않는다."""
+
+    entity: str
+    start_s: float = Field(ge=0)
+    end_s: float
+    units: int | None = Field(default=None, ge=1)  # None = 셀 용량 전체
+    cause: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _order(self):
+        if self.end_s <= self.start_s:
+            raise ValueError("fault end_s must be after start_s")
+        return self
+
+
 class ConstraintSpec(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
     id: str
@@ -120,6 +136,7 @@ class Scenario(_Strict):
     entities: list[EntitySpec] = Field(min_length=1)
     relations: list[RelationSpec] = Field(default_factory=list)
     workload: Workload
+    faults: list[FaultSpec] = Field(default_factory=list)
     constraints: list[ConstraintSpec] = Field(default_factory=list)
     objectives: list[ObjectiveSpec] = Field(default_factory=list)
     notes: str | None = None
@@ -132,6 +149,24 @@ class Scenario(_Strict):
         for r in self.relations:
             if r.source not in ids or r.target not in ids:
                 raise ValueError(f"relation {r.source}->{r.target} references unknown entity")
+        cap = {e.id: e.capacity for e in self.entities}
+        for i, f in enumerate(self.faults):
+            if f.entity not in cap:
+                raise ValueError(f"fault {i} references unknown entity {f.entity!r}")
+            if (f.units or cap[f.entity]) > cap[f.entity]:
+                raise ValueError(f"fault {i} takes more units than {f.entity} has")
+        # 같은 셀의 고장이 겹칠 때 합계가 용량을 넘지 않는지 (시각 순 스윕)
+        for ent in cap:
+            edges = []
+            for f in self.faults:
+                if f.entity == ent:
+                    u = f.units or cap[ent]
+                    edges += [(f.start_s, 1, u), (f.end_s, 0, -u)]  # 같은 시각이면 종료(0) 먼저
+            load = 0
+            for _, _, du in sorted(edges):
+                load += du
+                if load > cap[ent]:
+                    raise ValueError(f"overlapping faults exceed capacity of {ent}")
         offered = {c for e in self.entities if e.capacity > 0 for c in e.capabilities}
         for step in self.workload.job_template:
             if step.capability not in offered:

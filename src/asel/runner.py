@@ -12,7 +12,7 @@ from asel.core.events import SCHEMA_VERSION, Event, EventType
 from asel.core.invariants import check_invariants
 from asel.core.simulator import Simulator
 from asel.core.world import ENV_ACTOR, World
-from asel.domains.warehouse import OrderArrivals, world_init_payload
+from asel.domains.warehouse import WarehouseWorkload, world_init_payload
 from asel.io.eventlog import dumps_canonical, events_sha256, write_run_logs
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import Scenario
@@ -54,6 +54,21 @@ class RunResult:
         }
 
 
+ENV_ACTIONS = frozenset(
+    {
+        ActionKind.CREATE_TASK,
+        ActionKind.COMPLETE_TASK,
+        ActionKind.BEGIN_OUTAGE,
+        ActionKind.END_OUTAGE,
+    }
+)
+
+
+def default_grants(dispatcher_id: str) -> dict[str, frozenset[str]]:
+    """최소 권한 표 (잠정): 환경만 작업 생성·완료·고장을, 배정기는 작업 시작만."""
+    return {ENV_ACTOR: ENV_ACTIONS, dispatcher_id: frozenset({ActionKind.START_TASK})}
+
+
 def make_run_id(sc: Scenario, seed: int) -> str:
     return f"{sc.scenario_id}__seed{seed}__cfg{sc.config_hash()[:8]}"
 
@@ -64,15 +79,9 @@ def run_scenario(sc: Scenario, seed: int | None = None, check_invariants: bool =
     started = datetime.now(UTC).isoformat(timespec="seconds")
 
     dispatcher = FifoDispatcher()
-    world = World(
-        run_id,
-        grants={
-            ENV_ACTOR: {ActionKind.CREATE_TASK, ActionKind.COMPLETE_TASK},
-            dispatcher.actor_id: {ActionKind.START_TASK},
-        },
-    )
+    world = World(run_id, grants=default_grants(dispatcher.actor_id))
     world.initialize(*world_init_payload(sc))
-    sim = Simulator(world, OrderArrivals(sc, seed), dispatcher, check_invariants=check_invariants)
+    sim = Simulator(world, WarehouseWorkload(sc, seed), dispatcher, check_invariants=check_invariants)
     sim.run(until=sc.sim_time_limit)
 
     finished = datetime.now(UTC).isoformat(timespec="seconds")

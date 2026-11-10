@@ -9,10 +9,18 @@ class ActionKind:
     CREATE_TASK = "create_task"
     START_TASK = "start_task"
     COMPLETE_TASK = "complete_task"
+    BEGIN_OUTAGE = "begin_outage"
+    END_OUTAGE = "end_outage"
 
 
 KNOWN_ACTION_KINDS = frozenset(
-    {ActionKind.CREATE_TASK, ActionKind.START_TASK, ActionKind.COMPLETE_TASK}
+    {
+        ActionKind.CREATE_TASK,
+        ActionKind.START_TASK,
+        ActionKind.COMPLETE_TASK,
+        ActionKind.BEGIN_OUTAGE,
+        ActionKind.END_OUTAGE,
+    }
 )
 
 

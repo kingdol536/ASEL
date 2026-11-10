@@ -4,6 +4,8 @@
   구간 경계를 넘으면 경계 시각에서 새 도착률로 다시 뽑는다(지수분포의 무기억성으로 정확).
   난수 사용 횟수는 도착 과정에만 의존하고 배정 정책과 무관하다.
 - 주문 하나 = job_template 의 단계들을 선행관계 사슬로 만든 작업들.
+- 셀 고장: 시나리오의 faults 를 시작/종료 사건으로 예약한다. 원인·계획 종료 시각은 비공개.
+  고장 중에는 새 작업을 시작할 수 없고 진행 중 작업은 끝까지 처리한다 (docs/decisions/0003, 잠정).
 - 처리 시간은 주문 생성 시점에 미리 뽑는다 (stream "service").
   -> 배정 정책이 달라도 같은 시드면 같은 주문이 같은 처리 시간을 갖는다(대응 비교의 전제).
 """
@@ -34,7 +36,7 @@ def world_init_payload(sc: Scenario) -> tuple[list[dict], list[dict], list[dict]
     return entities, relations, resources
 
 
-class OrderArrivals:
+class WarehouseWorkload:
     def __init__(self, sc: Scenario, seed: int):
         self.sc = sc
         rng = RngStreams(seed)
@@ -65,7 +67,7 @@ class OrderArrivals:
         if cap is not None and self._count >= cap:
             return []
         t = self._next_arrival_time(now)
-        return [] if t is None else [(t, self._count)]
+        return [] if t is None else [(t, ("arrival", self._count))]
 
     def _next_arrival_time(self, now: float) -> float | None:
         t = now
@@ -80,10 +82,31 @@ class OrderArrivals:
             t = end
         return None
 
-    def initial_schedule(self) -> list[tuple[float, int]]:
-        return self._next_arrival(0.0)
+    def initial_schedule(self) -> list[tuple[float, tuple]]:
+        sched: list[tuple[float, tuple]] = list(self._next_arrival(0.0))
+        for i, f in enumerate(self.sc.faults):
+            sched.append((f.start_s, ("fault_start", i)))
+            sched.append((f.end_s, ("fault_end", i)))
+        return sched
 
-    def on_external(self, order_no: int, now: float):
+    def _fault_action(self, kind: str, i: int) -> Action:
+        f = self.sc.faults[i]
+        units = f.units or next(e.capacity for e in self.sc.entities if e.id == f.entity)
+        if kind == "fault_start":
+            return Action(
+                ENV_ACTOR,
+                ActionKind.BEGIN_OUTAGE,
+                {"entity": f.entity, "units": units},
+                private={"fault_index": i, "cause": f.cause, "planned_end_s": f.end_s},
+            )
+        return Action(ENV_ACTOR, ActionKind.END_OUTAGE, {"entity": f.entity, "units": units})
+
+    def on_external(self, data: tuple, now: float):
+        kind, n = data
+        if kind in ("fault_start", "fault_end"):
+            return [self._fault_action(kind, n)], []
+        assert kind == "arrival", kind
+        order_no = n
         self._count += 1
         order_id = f"order-{order_no:05d}"
         actions: list[Action] = []

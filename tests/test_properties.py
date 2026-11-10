@@ -45,7 +45,14 @@ def _plausible_action(data, w) -> Action:
     """현재 상태를 보고 '그럴듯한' 행동을 만든다. 순수 무작위만으로는 대부분 거절되어
     시작·완료 경로를 거의 시험하지 못한다(실측: 300개 사례 중 start 승인 0건)."""
     tasks = sorted(w.state.tasks)
-    kind = data.draw(st.sampled_from(["create", "start", "complete"]))
+    kind = data.draw(st.sampled_from(["create", "start", "complete", "outage"]))
+    if kind == "outage":
+        return Action(
+            ENV_ACTOR,
+            data.draw(st.sampled_from([ActionKind.BEGIN_OUTAGE, ActionKind.END_OUTAGE])),
+            {"entity": data.draw(st.sampled_from(CELLS[:3])), "units": data.draw(st.integers(1, 2))},
+            private={"cause": "random"},
+        )
     if kind == "create" or not tasks:
         preds = data.draw(st.lists(st.sampled_from(tasks), max_size=2, unique=True)) if tasks else []
         return Action(

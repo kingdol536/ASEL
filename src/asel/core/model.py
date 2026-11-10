@@ -63,6 +63,7 @@ class Resource:
     id: str
     capacity: int
     holders: list[str] = field(default_factory=list)  # 예약 중인 task id (예약 순서 유지)
+    out_of_service: int = 0  # 고장으로 쓸 수 없는 용량 단위 수
 
     @property
     def reserved(self) -> int:
@@ -70,7 +71,8 @@ class Resource:
 
     @property
     def available(self) -> int:
-        return self.capacity - self.reserved
+        """새 작업에 쓸 수 있는 용량. 고장 중 진행 작업이 남아 있으면 음수가 될 수 있다(잠정 규칙)."""
+        return self.capacity - self.out_of_service - self.reserved
 
 
 @dataclass
@@ -111,7 +113,7 @@ class WorldState:
                 {"source": r.source, "target": r.target, "kind": r.kind} for r in self.relations
             ],
             "resources": {
-                k: {"capacity": r.capacity, "holders": list(r.holders)}
+                k: {"capacity": r.capacity, "holders": list(r.holders), "out_of_service": r.out_of_service}
                 for k, r in sorted(self.resources.items())
             },
             "tasks": {

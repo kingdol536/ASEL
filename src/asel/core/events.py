@@ -18,6 +18,8 @@ class EventType:
     TASK_STATE_CHANGED = "TaskStateChanged"
     RESOURCE_RESERVED = "ResourceReserved"
     RESOURCE_RELEASED = "ResourceReleased"
+    RESOURCE_OUTAGE_STARTED = "ResourceOutageStarted"  # 공개: 증상(쓸 수 없는 단위 수). 원인은 비공개
+    RESOURCE_OUTAGE_ENDED = "ResourceOutageEnded"
     RUN_ENDED = "RunEnded"
 
 
