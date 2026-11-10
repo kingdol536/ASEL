@@ -1,0 +1,23 @@
+# EXP-002 — 기계용 설정. 설명·근거는 experiments/plans/EXP-002.md
+experiment_id: EXP-002
+status: preregistered      # 사용자 승인 전 잠정 (2026-11-11 사용자 승인 방식: 실행 전 커밋·푸시로 고정)
+question: 셀 역할 전환이 어떤 급증·전환 비용 조건에서 고정 구조보다 낫거나 나쁜가, 병목을 옮기는가
+hypotheses: [H1-cheap-changeover-helps, H2-flip-at-high-changeover, H3-cost-aware-switches-less, H4-bottleneck-shift]
+scenario_family: warehouse_A_reconfig
+scenarios_generator: experiments/configs/exp002_grid.py
+scenarios: [exp002-s1p5-c30, exp002-s1p5-c120, exp002-s1p5-c300,
+            exp002-s2p0-c30, exp002-s2p0-c120, exp002-s2p0-c300,
+            exp002-s3p0-c30, exp002-s3p0-c120, exp002-s3p0-c300]
+dispatcher: fifo
+structure_policies:
+  p0: {}
+  p1: {threshold: 8.0}
+  p2: {threshold: 3.0, cost_per_min: 2.0, min_dwell_s: 300}
+tuning: {scenario: warehouse-reconfig-dev, seeds: "0-9", record: experiments/reports/assets/M4/dev-tuning.md}
+seeds: {evaluation: "200-229"}   # 임시 30개
+primary_outcome: flow_mean_s
+secondary_outcomes: [flow_p95_s, completion_rate, backlog_end, reconf_completed, lost_capacity_s, bottleneck_shifts]
+comparisons: [p1-p0, p2-p0, p2-p1]
+analysis: paired bootstrap 95% CI, 10000 resamples, seed 20261111; confirmatory only for H1-H4
+evaluator_version: eval-0.3
+budget_usd: 0

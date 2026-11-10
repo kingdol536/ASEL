@@ -20,6 +20,9 @@ class EventType:
     RESOURCE_RELEASED = "ResourceReleased"
     RESOURCE_OUTAGE_STARTED = "ResourceOutageStarted"  # 공개: 증상(쓸 수 없는 단위 수). 원인은 비공개
     RESOURCE_OUTAGE_ENDED = "ResourceOutageEnded"
+    RECONFIGURATION_REQUESTED = "ReconfigurationRequested"  # 셀이 새 작업을 받지 않기 시작
+    RECONFIGURATION_STARTED = "ReconfigurationStarted"  # 진행 작업이 모두 끝나 전환 시작
+    RECONFIGURATION_COMPLETED = "ReconfigurationCompleted"  # 새 역할 적용
     RUN_ENDED = "RunEnded"
 
 

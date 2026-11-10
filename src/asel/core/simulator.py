@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from asel.core.actions import Action, ActionKind
 from asel.core.invariants import check_invariants
 from asel.core.model import WorldState
+from asel.core.events import EventType
 from asel.core.world import ENV_ACTOR, World
 
 
@@ -41,7 +42,7 @@ class Dispatcher(Protocol):
 class _Item:
     time: float
     seq: int
-    kind: str  # "complete" | "external"
+    kind: str  # "complete" | "reconfig_done" | "external"
     data: Any = None
 
 
@@ -50,12 +51,14 @@ class Simulator:
         self,
         world: World,
         source: WorkloadSource,
-        dispatcher: Dispatcher,
+        dispatcher: Dispatcher | list[Dispatcher],
         check_invariants: bool = True,
     ):
+        """dispatcher: 결정 주체 하나 또는 목록. 목록이면 순서대로 호출하고, 각 주체의 행동을 바로
+        적용한 뒤 다음 주체를 부른다 (예: 구조 제어 → 배정)."""
         self.world = world
         self.source = source
-        self.dispatcher = dispatcher
+        self.dispatchers = dispatcher if isinstance(dispatcher, list) else [dispatcher]
         self.check = check_invariants
         self._queue: list[_Item] = []
         self._seq = 0
@@ -65,10 +68,16 @@ class Simulator:
         self._seq += 1
 
     def _submit(self, action: Action) -> None:
+        n0 = len(self.world.log)
         res = self.world.submit(action)
         if res.accepted and action.kind == ActionKind.START_TASK:
             task = self.world.state.tasks[action.params["task"]]
             self.schedule(task.started_at + task.duration, "complete", task.id)
+        if res.accepted:
+            # 전환이 시작됐으면(요청 즉시 또는 마지막 작업 완료 시) 완료를 예약한다
+            for ev in self.world.log[n0:]:
+                if ev.event_type == EventType.RECONFIGURATION_STARTED:
+                    self.schedule(ev.sim_time + ev.payload["changeover_s"], "reconfig_done", ev.entity_id)
 
     def _check(self) -> None:
         if self.check:
@@ -77,8 +86,9 @@ class Simulator:
                 raise InvariantViolation(f"t={self.world.state.sim_time}: " + "; ".join(v))
 
     def _dispatch(self) -> None:
-        for action in self.dispatcher.propose(self.world.state):
-            self._submit(action)
+        for d in self.dispatchers:
+            for action in d.propose(self.world.state):
+                self._submit(action)
         self._check()
 
     def run(self, until: float) -> None:
@@ -93,6 +103,8 @@ class Simulator:
                 item = heapq.heappop(self._queue)
                 if item.kind == "complete":
                     self._submit(Action(ENV_ACTOR, ActionKind.COMPLETE_TASK, {"task": item.data}))
+                elif item.kind == "reconfig_done":
+                    self._submit(Action(ENV_ACTOR, ActionKind.COMPLETE_RECONFIGURATION, {"entity": item.data}))
                 elif item.kind == "external":
                     actions, later = self.source.on_external(item.data, now)
                     for a in actions:

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from asel.core.actions import Action, ActionKind
-from asel.core.model import TaskStatus, WorldState
+from asel.core.model import EntityMode, TaskStatus, WorldState
 
 OPEN_STATUSES = (TaskStatus.WAITING, TaskStatus.READY, TaskStatus.RUNNING, TaskStatus.BLOCKED)
 
@@ -34,9 +34,10 @@ class Observation:
     relations: tuple[dict, ...]
     open_tasks: tuple[dict, ...]
     completed_tasks: int
+    structure_version: int | None = None  # 재구성 가능한 셀이 있는 세계에서만 채운다
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "actor_id": self.actor_id,
             "sim_time": self.sim_time,
             "world_version": self.world_version,
@@ -45,6 +46,9 @@ class Observation:
             "open_tasks": list(self.open_tasks),
             "completed_tasks": self.completed_tasks,
         }
+        if self.structure_version is not None:
+            d["structure_version"] = self.structure_version
+        return d
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
@@ -93,20 +97,33 @@ class PolicyAdapter(Protocol):
 # --------------------------------------------------------------------------- 투영
 
 
+def _cell(state: WorldState, e) -> dict:
+    res = state.resources.get(e.id)
+    normal = e.mode == EntityMode.NORMAL
+    d = {
+        "id": e.id,
+        "type": e.type,
+        "capabilities": list(e.capabilities),
+        "capacity": res.capacity if res else 0,
+        "reserved": res.reserved if res else 0,
+        "out_of_service": res.out_of_service if res else 0,
+        # 새 작업에 쓸 수 있는 용량: 재구성 중(비우는 중·전환 중)이면 0
+        "available": max(res.available, 0) if (res and normal) else 0,
+    }
+    if e.reconfig is not None:
+        # 재구성 가능한 셀에만 붙인다 (재구성이 없는 세계의 관측은 M3 와 바이트 단위로 같게 유지)
+        d["mode"] = e.mode
+        d["target_capabilities"] = list(e.target_capabilities) if e.target_capabilities else None
+        d["mode_since"] = e.mode_since
+        d["reconfig"] = {"options": [list(o) for o in e.reconfig["options"]],
+                         "changeover_s": e.reconfig["changeover_s"]}
+    return d
+
+
 def project(state: WorldState, actor_id: str) -> Observation:
     """화이트리스트 투영: 여기 적은 필드만 관측에 들어간다."""
-    cells = tuple(
-        {
-            "id": e.id,
-            "type": e.type,
-            "capabilities": list(e.capabilities),
-            "capacity": state.resources[e.id].capacity if e.id in state.resources else 0,
-            "reserved": state.resources[e.id].reserved if e.id in state.resources else 0,
-            "out_of_service": state.resources[e.id].out_of_service if e.id in state.resources else 0,
-            "available": max(state.resources[e.id].available, 0) if e.id in state.resources else 0,
-        }
-        for e in sorted(state.entities.values(), key=lambda e: e.id)
-    )
+    cells = tuple(_cell(state, e) for e in sorted(state.entities.values(), key=lambda e: e.id))
+    any_reconfig = any(e.reconfig is not None for e in state.entities.values())
     relations = tuple({"source": r.source, "target": r.target, "kind": r.kind} for r in state.relations)
     open_tasks = tuple(
         {
@@ -126,7 +143,23 @@ def project(state: WorldState, actor_id: str) -> Observation:
         if t.status in OPEN_STATUSES
     )
     completed = sum(1 for t in state.tasks.values() if t.status == TaskStatus.COMPLETED)
-    return Observation(actor_id, state.sim_time, state.version, cells, relations, open_tasks, completed)
+    return Observation(actor_id, state.sim_time, state.version, cells, relations, open_tasks, completed,
+                       state.structure_version if any_reconfig else None)
+
+
+def offered_after(cells: tuple[dict, ...], override: tuple[str, list[str]] | None = None) -> set[str]:
+    """관측만으로 계산한 '전환이 끝났을 때 제공될 capability' (World.offered_capabilities 와 같은 규칙)."""
+    out: set[str] = set()
+    for c in cells:
+        if c["capacity"] <= 0:
+            continue
+        caps = c["capabilities"]
+        if c.get("mode", "normal") != "normal" and c.get("target_capabilities"):
+            caps = c["target_capabilities"]
+        if override and c["id"] == override[0]:
+            caps = override[1]
+        out.update(caps)
+    return out
 
 
 def affordances(obs: Observation, permitted: tuple[str, ...]) -> list[ActionSpec]:
@@ -146,6 +179,27 @@ def affordances(obs: Observation, permitted: tuple[str, ...]) -> list[ActionSpec
                 "READY 작업 하나를 해당 capability 가 있고 여유가 있는 셀에서 시작한다. "
                 "셀 하나의 여유 용량을 넘겨 배정하면 거절된다.",
                 cands,
+            )
+        )
+    if ActionKind.REQUEST_RECONFIGURATION in permitted:
+        base = offered_after(obs.cells)
+        cands = []
+        for c in obs.cells:
+            if c.get("reconfig") is None or c.get("mode") != "normal":
+                continue
+            for opt in c["reconfig"]["options"]:
+                target = sorted(opt)
+                if target == sorted(c["capabilities"]):
+                    continue
+                if base - offered_after(obs.cells, (c["id"], target)):
+                    continue  # 마지막 제공 셀을 없애는 전환은 후보에서 뺀다 (검증기도 거절)
+                cands.append({"entity": c["id"], "capabilities": target})
+        out.append(
+            ActionSpec(
+                ActionKind.REQUEST_RECONFIGURATION,
+                "셀의 역할(capability)을 바꾼다. 셀은 새 작업을 받지 않다가, 진행 작업이 끝나면 "
+                "changeover_s 동안 멈춘 뒤 새 역할이 된다. 취소할 수 없다.",
+                tuple(cands),
             )
         )
     return out

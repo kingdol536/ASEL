@@ -11,6 +11,8 @@ class ActionKind:
     COMPLETE_TASK = "complete_task"
     BEGIN_OUTAGE = "begin_outage"
     END_OUTAGE = "end_outage"
+    REQUEST_RECONFIGURATION = "request_reconfiguration"
+    COMPLETE_RECONFIGURATION = "complete_reconfiguration"
 
 
 KNOWN_ACTION_KINDS = frozenset(
@@ -20,6 +22,8 @@ KNOWN_ACTION_KINDS = frozenset(
         ActionKind.COMPLETE_TASK,
         ActionKind.BEGIN_OUTAGE,
         ActionKind.END_OUTAGE,
+        ActionKind.REQUEST_RECONFIGURATION,
+        ActionKind.COMPLETE_RECONFIGURATION,
     }
 )
 

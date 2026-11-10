@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from asel.core.model import TaskStatus, WorldState
+from asel.core.model import EntityMode, TaskStatus, WorldState
 
 _DONE_OR_RUNNING = {TaskStatus.RUNNING, TaskStatus.COMPLETED}
 
@@ -34,6 +34,22 @@ def check_invariants(state: WorldState) -> list[str]:
             elif t.status != TaskStatus.RUNNING:
                 v.append(f"resource {res.id}: holder {tid} is {t.status}, not RUNNING")
 
+    # 0. 재구성 상태: 전환 중 셀에는 작업이 없고, 비우는 중 셀의 작업은 요청 전에 시작된 것뿐
+    for e in state.entities.values():
+        res = state.resources.get(e.id)
+        holders = res.holders if res else []
+        if e.mode == EntityMode.CHANGEOVER and holders:
+            v.append(f"entity {e.id}: changeover with running tasks {holders}")
+        if e.mode == EntityMode.DRAINING:
+            for tid in holders:
+                t = state.tasks.get(tid)
+                if t is not None and t.started_at is not None and t.started_at > e.mode_since:
+                    v.append(f"entity {e.id}: task {tid} started after drain request")
+        if e.mode == EntityMode.NORMAL and e.target_capabilities is not None:
+            v.append(f"entity {e.id}: normal mode with pending target")
+        if e.mode != EntityMode.NORMAL and e.target_capabilities is None:
+            v.append(f"entity {e.id}: {e.mode} without target")
+
     for t in state.tasks.values():
         preds = [state.tasks.get(p) for p in t.predecessors]
         if any(p is None for p in preds):
@@ -54,8 +70,9 @@ def check_invariants(state: WorldState) -> list[str]:
         if t.status == TaskStatus.WAITING and preds_done:
             v.append(f"task {t.id}: WAITING although predecessors are completed")
 
-        # 4. 배정된 셀은 작업에 필요한 capability 를 가진다
-        if t.status in _DONE_OR_RUNNING:
+        # 4. 배정된 셀은 작업에 필요한 capability 를 가진다 (진행 중 작업만: 완료된 작업의 셀은
+        #    그 뒤 재구성으로 역할이 바뀌었을 수 있다. 시작 시점의 일치는 검증기가 보장)
+        if t.status == TaskStatus.RUNNING:
             ent = state.entities.get(t.assigned_entity or "")
             if ent is None:
                 v.append(f"task {t.id}: assigned to unknown entity {t.assigned_entity}")

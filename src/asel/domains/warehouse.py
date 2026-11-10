@@ -27,10 +27,15 @@ from asel.io.scenario import (
 
 
 def world_init_payload(sc: Scenario) -> tuple[list[dict], list[dict], list[dict]]:
-    entities = [
-        {"id": e.id, "type": e.type, "capabilities": list(e.capabilities), "properties": dict(e.properties)}
-        for e in sc.entities
-    ]
+    entities = []
+    for e in sc.entities:
+        d = {"id": e.id, "type": e.type, "capabilities": list(e.capabilities), "properties": dict(e.properties)}
+        if e.reconfigurable is not None:
+            d["reconfig"] = {
+                "options": [sorted(o) for o in e.reconfigurable.options],
+                "changeover_s": float(e.reconfigurable.changeover_s),
+            }
+        entities.append(d)
     relations = [{"source": r.source, "target": r.target, "kind": r.kind} for r in sc.relations]
     resources = [{"id": e.id, "capacity": e.capacity} for e in sc.entities]
     return entities, relations, resources

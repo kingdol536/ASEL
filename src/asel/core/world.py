@@ -20,6 +20,7 @@ from asel.core.actions import KNOWN_ACTION_KINDS, Action, ActionKind, ActionResu
 from asel.core.events import Event, EventType
 from asel.core.model import (
     Entity,
+    EntityMode,
     Relation,
     Resource,
     Task,
@@ -58,6 +59,7 @@ def apply_event(state: WorldState, ev: Event) -> None:
                 type=e["type"],
                 capabilities=tuple(e["capabilities"]),
                 properties=dict(e.get("properties", {})),
+                reconfig=e.get("reconfig"),
             )
         for r in p["relations"]:
             state.relations.append(Relation(source=r["source"], target=r["target"], kind=r["kind"]))
@@ -124,6 +126,34 @@ def apply_event(state: WorldState, ev: Event) -> None:
         if res is None or p["units"] > res.out_of_service:
             raise ReducerError(f"invalid outage end on {ev.entity_id}")
         res.out_of_service -= p["units"]
+
+    elif et == EventType.RECONFIGURATION_REQUESTED:
+        ent = state.entities.get(ev.entity_id)
+        if ent is None or ent.mode != EntityMode.NORMAL or ent.reconfig is None:
+            raise ReducerError(f"invalid reconfiguration request on {ev.entity_id}")
+        ent.mode = EntityMode.DRAINING
+        ent.target_capabilities = tuple(p["capabilities"])
+        ent.mode_since = ev.sim_time
+
+    elif et == EventType.RECONFIGURATION_STARTED:
+        ent = state.entities.get(ev.entity_id)
+        res = state.resources.get(ev.entity_id)
+        if ent is None or ent.mode != EntityMode.DRAINING or (res is not None and res.holders):
+            raise ReducerError(f"invalid reconfiguration start on {ev.entity_id}")
+        ent.mode = EntityMode.CHANGEOVER
+        ent.mode_since = ev.sim_time
+
+    elif et == EventType.RECONFIGURATION_COMPLETED:
+        ent = state.entities.get(ev.entity_id)
+        if ent is None or ent.mode != EntityMode.CHANGEOVER:
+            raise ReducerError(f"invalid reconfiguration completion on {ev.entity_id}")
+        if tuple(p["capabilities"]) != ent.target_capabilities:
+            raise ReducerError(f"completion capabilities differ from request on {ev.entity_id}")
+        ent.capabilities = ent.target_capabilities
+        ent.target_capabilities = None
+        ent.mode = EntityMode.NORMAL
+        ent.mode_since = ev.sim_time
+        state.structure_version += 1
 
     elif et in (EventType.ACTION_PROPOSED, EventType.ACTION_REJECTED, EventType.RUN_ENDED):
         pass  # 상태 변경 없음 (시각만 갱신)
@@ -272,7 +302,58 @@ class World:
             r += self._validate_complete(action.params)
         elif action.kind in (ActionKind.BEGIN_OUTAGE, ActionKind.END_OUTAGE):
             r += self._validate_outage(action.kind, action.params)
+        elif action.kind == ActionKind.REQUEST_RECONFIGURATION:
+            r += self._validate_request_reconfiguration(action.params)
+        elif action.kind == ActionKind.COMPLETE_RECONFIGURATION:
+            r += self._validate_complete_reconfiguration(action.params)
         return r
+
+    def offered_capabilities(self, override: tuple[str, tuple[str, ...]] | None = None) -> set[str]:
+        """용량이 있는 셀이 (전환이 끝났을 때) 제공하게 될 capability 집합.
+        전환 중이거나 작업을 비우는 셀은 목표 역할로 센다. 고장은 일시적이므로 세지 않는다."""
+        out: set[str] = set()
+        for e in self.state.entities.values():
+            res = self.state.resources.get(e.id)
+            if res is None or res.capacity <= 0:
+                continue
+            caps = e.target_capabilities if e.mode != EntityMode.NORMAL and e.target_capabilities else e.capabilities
+            if override and e.id == override[0]:
+                caps = override[1]
+            out.update(caps)
+        return out
+
+    def _validate_request_reconfiguration(self, p: dict) -> list[str]:
+        ent = self.state.entities.get(_as_id(p.get("entity")))
+        if ent is None:
+            return [f"request_reconfiguration: unknown entity {p.get('entity')!r}"]
+        if ent.reconfig is None:
+            return [f"request_reconfiguration: {ent.id} is not reconfigurable"]
+        if ent.mode != EntityMode.NORMAL:
+            return [f"request_reconfiguration: {ent.id} is already {ent.mode} (no cancel or chaining)"]
+        caps = p.get("capabilities")
+        if not isinstance(caps, list) or not all(isinstance(c, str) for c in caps):
+            return ["request_reconfiguration: capabilities must be a list of strings"]
+        target = tuple(sorted(caps))
+        options = [tuple(sorted(o)) for o in ent.reconfig["options"]]
+        if target not in options:
+            return [f"request_reconfiguration: {list(target)} is not an option for {ent.id}"]
+        if target == tuple(sorted(ent.capabilities)):
+            return [f"request_reconfiguration: {ent.id} already has {list(target)}"]
+        lost = self.offered_capabilities() - self.offered_capabilities((ent.id, target))
+        if lost:
+            # 교착 방지: 마지막 제공 셀의 역할을 빼면 그 capability 작업이 영원히 대기한다
+            return [f"request_reconfiguration: no cell would offer {sorted(lost)} after the change"]
+        return []
+
+    def _validate_complete_reconfiguration(self, p: dict) -> list[str]:
+        ent = self.state.entities.get(_as_id(p.get("entity")))
+        if ent is None:
+            return [f"complete_reconfiguration: unknown entity {p.get('entity')!r}"]
+        if ent.mode != EntityMode.CHANGEOVER:
+            return [f"complete_reconfiguration: {ent.id} is {ent.mode}, not changeover"]
+        if self.state.sim_time < ent.mode_since + float(ent.reconfig["changeover_s"]):
+            return [f"complete_reconfiguration: {ent.id} changeover not finished"]
+        return []
 
     def _validate_outage(self, kind: str, p: dict) -> list[str]:
         res = self.state.resources.get(_as_id(p.get("entity")))
@@ -327,6 +408,8 @@ class World:
         if ent is None:
             return [f"start_task: unknown entity {p.get('entity')!r}"]
         r = []
+        if ent.mode != EntityMode.NORMAL:
+            r.append(f"start_task: entity {ent.id} is {ent.mode} (reconfiguration)")
         if task.status != TaskStatus.READY:
             r.append(f"start_task: task {task.id} is {task.status}, not READY")
         if task.capability not in ent.capabilities:
@@ -404,6 +487,14 @@ class World:
                     effects.append(
                         (EventType.TASK_STATE_CHANGED, sid, {"from": "WAITING", "to": "READY"}, None)
                     )
+            ent = self.state.entities.get(task.assigned_entity)
+            res = self.state.resources.get(task.assigned_entity)
+            if ent is not None and ent.mode == EntityMode.DRAINING and res is not None and res.holders == [task.id]:
+                # 비우던 셀의 마지막 작업이 끝났다 → 전환 시작
+                effects.append(
+                    (EventType.RECONFIGURATION_STARTED, ent.id,
+                     {"changeover_s": float(ent.reconfig["changeover_s"])}, None)
+                )
             return effects
 
         if a.kind == ActionKind.BEGIN_OUTAGE:
@@ -412,6 +503,21 @@ class World:
 
         if a.kind == ActionKind.END_OUTAGE:
             return [(EventType.RESOURCE_OUTAGE_ENDED, p["entity"], {"units": p["units"]}, None)]
+
+        if a.kind == ActionKind.REQUEST_RECONFIGURATION:
+            ent = self.state.entities[p["entity"]]
+            res = self.state.resources.get(ent.id)
+            effects = [(EventType.RECONFIGURATION_REQUESTED, ent.id, {"capabilities": sorted(p["capabilities"])}, None)]
+            if res is None or not res.holders:
+                effects.append(
+                    (EventType.RECONFIGURATION_STARTED, ent.id,
+                     {"changeover_s": float(ent.reconfig["changeover_s"])}, None)
+                )
+            return effects
+
+        if a.kind == ActionKind.COMPLETE_RECONFIGURATION:
+            ent = self.state.entities[p["entity"]]
+            return [(EventType.RECONFIGURATION_COMPLETED, ent.id, {"capabilities": list(ent.target_capabilities)}, None)]
 
         raise AssertionError(f"unhandled kind {a.kind}")
 

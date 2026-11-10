@@ -41,12 +41,23 @@ def is_allowed_transition(src: TaskStatus, dst: TaskStatus) -> bool:
     return dst in ALLOWED_TRANSITIONS[src]
 
 
+class EntityMode:
+    NORMAL = "normal"
+    DRAINING = "draining"  # 재구성 요청됨: 새 작업을 받지 않고 진행 작업이 끝나길 기다림
+    CHANGEOVER = "changeover"  # 전환 중: 작업 없음, changeover_s 뒤 새 역할
+
+
 @dataclass
 class Entity:
     id: str
     type: str
     capabilities: tuple[str, ...]
     properties: dict = field(default_factory=dict)
+    # 재구성 옵션 (공개 설계 정보): {"options": [[...], ...], "changeover_s": float}. None 이면 재구성 불가
+    reconfig: dict | None = None
+    mode: str = EntityMode.NORMAL
+    target_capabilities: tuple[str, ...] | None = None
+    mode_since: float | None = None
 
 
 @dataclass
@@ -94,6 +105,7 @@ class Task:
 @dataclass
 class WorldState:
     version: int = 0
+    structure_version: int = 0  # 구조(셀 역할) 변경 완료마다 1 증가
     sim_time: float = 0.0
     entities: dict[str, Entity] = field(default_factory=dict)
     relations: list[Relation] = field(default_factory=list)
@@ -104,9 +116,18 @@ class WorldState:
         """비교·해시용 정규화 표현. 키 순서와 무관하게 동일 상태면 동일 dict."""
         return {
             "version": self.version,
+            "structure_version": self.structure_version,
             "sim_time": self.sim_time,
             "entities": {
-                k: {"type": e.type, "capabilities": list(e.capabilities), "properties": e.properties}
+                k: {
+                    "type": e.type,
+                    "capabilities": list(e.capabilities),
+                    "properties": e.properties,
+                    "reconfig": e.reconfig,
+                    "mode": e.mode,
+                    "target_capabilities": list(e.target_capabilities) if e.target_capabilities else None,
+                    "mode_since": e.mode_since,
+                }
                 for k, e in sorted(self.entities.items())
             },
             "relations": [

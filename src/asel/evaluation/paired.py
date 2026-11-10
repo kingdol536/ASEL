@@ -29,11 +29,12 @@ def bootstrap_ci(diffs: list[float], n_boot: int = N_BOOT, seed: int = BOOT_SEED
     return means[int(0.025 * n_boot)], means[int(0.975 * n_boot) - 1]
 
 
-def paired_compare(rows: list[dict], metric: str, a: str, b: str) -> list[dict]:
-    """rows: batch_eval.csv 행. 시나리오별로 (B - A) 대응 차이를 요약한다."""
+def paired_compare(rows: list[dict], metric: str, a: str, b: str, column: str = "policy") -> list[dict]:
+    """rows: batch_eval.csv 행. 시나리오별로 (B - A) 대응 차이를 요약한다.
+    column: 비교할 처리 열 ('policy' = 배정 정책, 'structure' = 구조 정책)."""
     by = {}
     for r in rows:
-        by[(r["scenario_id"], r["policy"], int(r["seed"]))] = _num(r[metric])
+        by[(r["scenario_id"], r.get(column, ""), int(r["seed"]))] = _num(r[metric])
     out = []
     for scen in sorted({k[0] for k in by}):
         seeds = sorted({k[2] for k in by if k[0] == scen})

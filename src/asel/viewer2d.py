@@ -39,6 +39,8 @@ class _View:
     relations: list[dict] = field(default_factory=list)
     bars: dict[str, list[_Bar]] = field(default_factory=dict)
     outages: dict[str, list[list]] = field(default_factory=dict)  # entity -> [start, end|None, units]
+    # 재구성: entity -> [kind('draining'|'changeover'), start, end|None, target capabilities]
+    reconf: dict[str, list[list]] = field(default_factory=dict)
     ready_series: dict[str, list[tuple[float, int]]] = field(default_factory=dict)
     rejected: list[Event] = field(default_factory=list)
     n_events: int = 0
@@ -55,7 +57,7 @@ def build_view(events: list[Event]) -> _View:
         p = ev.payload
         et = ev.event_type
         if et == "WorldInitialized":
-            v.entities = p["entities"]
+            v.entities = [dict(e) for e in p["entities"]]  # 이벤트 원본을 바꾸지 않도록 복사
             v.relations = p["relations"]
             for e in v.entities:
                 v.bars[e["id"]] = []
@@ -85,6 +87,21 @@ def build_view(events: list[Event]) -> _View:
                 if o[1] is None:
                     o[1] = ev.sim_time
                     break
+        elif et == "ReconfigurationRequested":
+            v.reconf.setdefault(ev.entity_id, []).append(["draining", ev.sim_time, None, p["capabilities"]])
+        elif et == "ReconfigurationStarted":
+            segs = v.reconf.setdefault(ev.entity_id, [])
+            target = segs[-1][3] if segs else []
+            if segs and segs[-1][2] is None:
+                segs[-1][2] = ev.sim_time
+            segs.append(["changeover", ev.sim_time, None, target])
+        elif et == "ReconfigurationCompleted":
+            for ent in v.entities:  # 그래프는 실행 종료 시점의 역할로 그린다
+                if ent["id"] == ev.entity_id:
+                    ent["capabilities"] = list(p["capabilities"])
+            segs = v.reconf.get(ev.entity_id, [])
+            if segs and segs[-1][2] is None:
+                segs[-1][2] = ev.sim_time
         elif et == "ActionRejected":
             v.rejected.append(ev)
     return v
@@ -175,6 +192,15 @@ def _gantt_svg(v: _View, colors: dict[str, str]) -> str:
                 f'<rect x="{x1:.1f}" y="{y + 1}" width="{max(x2 - x1, 1):.1f}" height="{row_h - 2}" class="outage">'
                 f"<title>고장 {int(start)}s–{'진행중' if end is None else f'{int(end)}s'} · 용량 {units}단위 감소</title></rect>"
             )
+        for kind, start, end, target in v.reconf.get(eid, []):
+            x1, x2 = _x(start, t_end, label_w, w), _x(end if end is not None else t_end, t_end, label_w, w)
+            label = "작업 비우는 중" if kind == "draining" else "역할 전환 중"
+            out.append(
+                f'<rect x="{x1:.1f}" y="{y + 1}" width="{max(x2 - x1, 1):.1f}" height="{row_h - 2}" class="{kind}">'
+                f"<title>{label} {int(start)}s–{'진행중' if end is None else f'{int(end)}s'} → {_esc(', '.join(target))}</title></rect>"
+            )
+            if kind == "changeover" and end is not None:
+                out.append(f'<text x="{x2 + 2:.1f}" y="{y + row_h * 0.62:.1f}" class="reconf-label">→{_esc(",".join(target))}</text>')
         for b in v.bars.get(eid, []):
             x1 = _x(b.start, t_end, label_w, w)
             x2 = _x(b.end if b.end is not None else t_end, t_end, label_w, w)
@@ -218,8 +244,8 @@ def _ready_svg(v: _View, colors: dict[str, str]) -> str:
 
 
 CSS = """
-:root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--line:#d0d7de;--panel:#f6f8fa;--node:#ffffff;--outage:rgba(194,59,82,.16)}
-@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8d96a0;--line:#30363d;--panel:#161b22;--node:#0d1117;--outage:rgba(248,81,73,.22)}}
+:root{--bg:#ffffff;--fg:#1f2328;--muted:#656d76;--line:#d0d7de;--panel:#f6f8fa;--node:#ffffff;--outage:rgba(194,59,82,.16);--draining:rgba(217,119,43,.14);--changeover:rgba(107,114,128,.32)}
+@media (prefers-color-scheme: dark){:root{--bg:#0d1117;--fg:#e6edf3;--muted:#8d96a0;--line:#30363d;--panel:#161b22;--node:#0d1117;--outage:rgba(248,81,73,.22);--draining:rgba(217,119,43,.22);--changeover:rgba(160,166,176,.32)}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,"Segoe UI","Malgun Gothic",sans-serif}
 main{max-width:1100px;margin:0 auto;padding:24px 16px 48px}h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 8px}
 .meta{color:var(--muted);font-size:13px}.note{color:var(--muted);font-size:12px;margin-top:4px}
@@ -229,7 +255,8 @@ svg{display:block;width:100%;height:auto;min-width:640px}.graph{max-width:640px;
 .edge{stroke:var(--muted);stroke-width:1.4}.edge-head{fill:var(--muted)}
 .grid{stroke:var(--line);stroke-width:1}.tick{font-size:10px;fill:var(--muted);text-anchor:middle}
 .row-label{font-size:11px;fill:var(--fg);text-anchor:end}.bar{opacity:.9}.bar.open{opacity:.45}
-.outage{fill:var(--outage)}.line{fill:none;stroke-width:1.6}
+.outage{fill:var(--outage)}.draining{fill:var(--draining)}.changeover{fill:var(--changeover)}
+.reconf-label{font-size:9px;fill:var(--muted)}.line{fill:none;stroke-width:1.6}
 .legend{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--muted)}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 table{border-collapse:collapse;width:100%;font-size:12px}td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
@@ -242,6 +269,9 @@ def render_html(v: _View) -> str:
         f'<span><span class="sw" style="background:{c}"></span>{_esc(k)}</span>' for k, c in colors.items()
     )
     legend = cap_legend + '<span><span class="sw" style="background:var(--outage)"></span>고장 구간</span>'
+    if v.reconf:
+        legend += ('<span><span class="sw" style="background:var(--draining)"></span>작업 비우는 중</span>'
+                   '<span><span class="sw" style="background:var(--changeover)"></span>역할 전환 중</span>')
     n_tasks = sum(len(b) for b in v.bars.values())
     if v.rejected:
         rows = "".join(
@@ -263,7 +293,7 @@ def render_html(v: _View) -> str:
 <h1>실행 재생 (2D)</h1>
 <div class="meta">{_esc(v.run_id)} · 사건 {v.n_events}개 · 종료 {v.end_time:.0f}s · 시작된 작업 {n_tasks}개</div>
 <p class="note">공개 로그만으로 그린 화면입니다. 실제 처리 시간·고장 원인 같은 숨겨진 값은 포함하지 않습니다. 시나리오 수치는 가상 값입니다.</p>
-<h2>셀 연결</h2><section>{_graph_svg(v, colors)}</section>
+<h2>셀 연결</h2><section>{_graph_svg(v, colors)}<p class="note">셀 역할은 실행 종료 시점 기준입니다.</p></section>
 <h2>셀별 작업 타임라인</h2><section>{_gantt_svg(v, colors)}<div class="legend">{legend}</div>
 <p class="note">막대에 마우스를 올리면 작업 id와 시각이 보입니다. 흐린 막대는 종료 시점에 진행 중이던 작업입니다.</p></section>
 <h2>대기(READY) 작업 수</h2><section>{_ready_svg(v, colors)}<div class="legend">{cap_legend}</div></section>

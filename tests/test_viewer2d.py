@@ -42,3 +42,15 @@ def test_view_intervals_match_state(tmp_path):
     for cap, series in v.ready_series.items():
         n_ready = sum(1 for t in res.world.state.tasks.values() if t.capability == cap and t.status == "READY")
         assert series[-1][1] == n_ready
+
+
+def test_view_shows_reconfiguration(tmp_path):
+    sc = load_scenario(ROOT / "scenarios" / "warehouse-reconfig-dev.yaml")
+    res = run_scenario(sc, seed=2, structure_policy="p1")
+    run_dir = write_run(res, tmp_path)
+    before = (run_dir / PUBLIC_LOG).read_bytes()
+    page = render_run(run_dir).read_text(encoding="utf-8")
+    assert (run_dir / PUBLIC_LOG).read_bytes() == before
+    n = sum(1 for e in res.events if e.event_type == "ReconfigurationCompleted")
+    assert page.count('class="changeover"') == n > 0
+    assert "역할 전환 중" in page and "→pack" in page
