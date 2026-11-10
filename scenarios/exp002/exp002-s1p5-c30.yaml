@@ -1,0 +1,80 @@
+# 생성 파일 — experiments/configs/exp002_grid.py 로 만든다. 직접 고치지 않는다.
+schema_version: '0.3'
+scenario_id: exp002-s1p5-c30
+domain: warehouse_like
+seed: 42
+sim_time_limit: 3600.0
+entities:
+- id: cell-pick-1
+  type: workstation
+  capabilities:
+  - pick
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+- id: cell-pick-2
+  type: workstation
+  capabilities:
+  - pick
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+- id: cell-flex-1
+  type: workstation
+  capabilities:
+  - pick
+  capacity: 1
+  properties: {}
+  reconfigurable:
+    options:
+    - - pick
+    - - pack
+    changeover_s: 30.0
+- id: cell-pack-1
+  type: workstation
+  capabilities:
+  - pack
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+relations:
+- source: cell-pick-1
+  target: cell-pack-1
+  kind: material_flow
+- source: cell-pick-2
+  target: cell-pack-1
+  kind: material_flow
+- source: cell-flex-1
+  target: cell-pack-1
+  kind: material_flow
+workload:
+  arrival_process:
+    type: piecewise_poisson
+    segments:
+    - start_s: 0.0
+      rate_per_min: 1.5
+    - start_s: 1200.0
+      rate_per_min: 2.25
+    - start_s: 2400.0
+      rate_per_min: 1.5
+  job_template:
+  - capability: pick
+    service_time:
+      type: exponential
+      mean_s: 60.0
+  - capability: pack
+    service_time:
+      type: uniform
+      low_s: 20.0
+      high_s: 40.0
+  max_arrivals: null
+faults: []
+constraints:
+- id: nonnegative-capacity
+  kind: invariant
+- id: precedence
+  kind: invariant
+objectives:
+- id: meet-order-deadline
+  kind: provisional
+notes: 'EXP-002 grid: surge x1.5 in 1200-2400s, changeover 30s (virtual values)'
