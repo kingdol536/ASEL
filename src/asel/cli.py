@@ -58,7 +58,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     d = run_batch(args.scenarios, parse_seeds(args.seeds), Path(args.out), jobs=args.jobs)
     info = json.loads((d / "batch.json").read_text(encoding="utf-8"))
     print(f"batch_dir: {d}")
-    print(json.dumps({k: info[k] for k in ("n_runs", "throughput", "invariant_violations_total")}, indent=2))
+    print(json.dumps({k: info[k] for k in ("n_runs", "throughput", "invariant_violations_total")}, indent=2, ensure_ascii=False))
     return 0 if info["invariant_violations_total"] == 0 else 1
 
 
