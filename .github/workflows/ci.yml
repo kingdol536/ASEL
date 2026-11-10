@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: uv sync --locked
+      - name: Test
+        run: uv run pytest
+      - name: Headless smoke run + replay check
+        shell: bash
+        run: |
+          uv run asel run scenarios/warehouse-small-a.yaml --seed 42 --out ci-runs
+          RUN_DIR="$(ls -d ci-runs/warehouse-small-a/*/ | head -1)"
+          uv run asel replay-check "$RUN_DIR"
+          cp "$RUN_DIR/events.ndjson" "events-${{ matrix.os }}.ndjson"
+          grep events_sha256 "$RUN_DIR/manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: events-${{ matrix.os }}
+          path: events-${{ matrix.os }}.ndjson
+
+  # 플랫폼 간 결정성 측정 (docs/decisions/0001). 결과를 기록만 하고 빌드를 막지 않는다(잠정).
+  cross-os-determinism:
+    needs: test
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --locked
+      - uses: actions/download-artifact@v4
+        with:
+          path: logs
+          merge-multiple: true
+      - name: Compare Windows vs Ubuntu event logs
+        run: uv run asel compare-logs logs/events-ubuntu-latest.ndjson logs/events-windows-latest.ndjson
