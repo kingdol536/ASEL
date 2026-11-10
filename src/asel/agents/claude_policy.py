@@ -119,10 +119,25 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int,
 # --------------------------------------------------------------------------- 예산 장부
 
 
-class _FileLock:
-    """여러 프로세스가 같은 장부를 쓸 때의 배타 잠금 (O_EXCL 잠금 파일, 오래된 잠금은 정리)."""
+def _retry_os(fn, tries: int = 100, delay_s: float = 0.02):
+    """Windows 에서 다른 프로세스가 같은 파일을 잠깐 쥐고 있을 때 나는 PermissionError 를 재시도한다."""
+    for i in range(tries):
+        try:
+            return fn()
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(delay_s)
 
-    def __init__(self, path: Path, timeout_s: float = 30.0, stale_s: float = 120.0):
+
+class _FileLock:
+    """여러 프로세스가 같은 장부를 쓸 때의 배타 잠금 (O_EXCL 잠금 파일, 오래된 잠금은 정리).
+
+    Windows 에서는 다른 프로세스가 지우는 중인 잠금 파일(delete-pending)을 만들려 하면
+    FileExistsError 가 아니라 PermissionError 가 난다 → 둘 다 '잠금 사용 중'으로 보고 기다린다.
+    (EXP-001 본 실험 6병렬 실행 중 실제로 발생해 배치가 중단된 결함, 2026-11-11)"""
+
+    def __init__(self, path: Path, timeout_s: float = 60.0, stale_s: float = 120.0):
         self.path, self.timeout_s, self.stale_s = path, timeout_s, stale_s
 
     def __enter__(self):
@@ -133,19 +148,19 @@ class _FileLock:
                 fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 os.close(fd)
                 return self
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
                 try:
                     if time.time() - self.path.stat().st_mtime > self.stale_s:
                         self.path.unlink(missing_ok=True)
                         continue
-                except FileNotFoundError:
-                    continue
+                except OSError:
+                    pass  # 그 사이 지워졌거나 지우는 중
                 if time.monotonic() > deadline:
                     raise TimeoutError(f"budget ledger lock busy: {self.path}")
-                time.sleep(0.05)
+                time.sleep(0.02)
 
     def __exit__(self, *exc):
-        self.path.unlink(missing_ok=True)
+        _retry_os(lambda: self.path.unlink(missing_ok=True))
 
 
 @dataclass
@@ -165,16 +180,16 @@ class BudgetGuard:
 
     def _load(self) -> dict:
         if self.ledger_path.exists():
-            s = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+            s = json.loads(_retry_os(lambda: self.ledger_path.read_text(encoding="utf-8")))
             s.setdefault("usd_reserved", 0.0)
             return s
         return {"usd_spent": 0.0, "usd_reserved": 0.0, "calls": 0, "entries": 0}
 
     def _save(self, s: dict) -> None:
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.ledger_path.with_suffix(".tmp")
+        tmp = self.ledger_path.with_name(f"{self.ledger_path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(s, indent=2), encoding="utf-8")
-        tmp.replace(self.ledger_path)
+        _retry_os(lambda: tmp.replace(self.ledger_path))
 
     def state(self) -> dict:
         return self._load()

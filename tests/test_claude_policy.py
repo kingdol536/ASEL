@@ -300,3 +300,48 @@ def test_race_loser_uses_stored_response_and_replay_matches(tmp_path):
     b = run_scenario(SHORT, seed=4, policy=late)
     assert b.policy_usage.get("cache_race_lost", 0) == b.policy_usage["api_calls"] > 0
     assert encode_events(a.events) == encode_events(b.events)  # 저장된(먼저 온) 응답대로 행동
+
+
+def test_lock_treats_windows_delete_pending_as_busy(tmp_path, monkeypatch):
+    """Windows 에서 지우는 중인 잠금 파일은 PermissionError 를 낸다 → 기다렸다가 다시 잡아야 한다 (실제 발생 결함)."""
+    import os as _os
+
+    from asel.agents import claude_policy as cp
+
+    real_open, calls = _os.open, {"n": 0}
+
+    def flaky_open(path, flags, *a):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *a)
+
+    monkeypatch.setattr(cp.os, "open", flaky_open)
+    g = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
+    assert g.reserve(0.1)[0] is True and calls["n"] == 4
+
+
+_HEAVY_WORKER = r"""
+import sys
+from pathlib import Path
+from asel.agents.claude_policy import BudgetGuard
+g = BudgetGuard(Path(sys.argv[1]), usd_cap=1000.0)
+for _ in range(300):
+    if g.reserve(0.001)[0]:
+        g.settle(0.001, 0.001)
+print("ok")
+"""
+
+
+def test_ledger_survives_heavy_contention(tmp_path):
+    """8개 프로세스가 촘촘하게 잠금을 잡고 놓아도 예외 없이 끝나고 합계가 맞는다."""
+    import subprocess
+    import sys
+
+    ledger = tmp_path / "ledger.json"
+    procs = [subprocess.Popen([sys.executable, "-c", _HEAVY_WORKER, str(ledger)], stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True) for _ in range(8)]
+    outs = [p.communicate(timeout=300) for p in procs]
+    assert all(o[0].strip() == "ok" for o in outs), [o[1][-300:] for o in outs]
+    s = json.loads(ledger.read_text())
+    assert s["calls"] == 2400 and s["usd_spent"] == pytest.approx(2.4)
