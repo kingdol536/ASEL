@@ -1,0 +1,44 @@
+== 정책별 평균 (시드 100~129) ==
+warehouse-small-a  flow mean 136.5/136.5/137.4  p95 267/251/254  compl 0.954/0.954/0.954  backlog 4.5/4.5/4.6  usd/run claude 0.0006  calls 3  lat_s 4
+warehouse-surge-a  flow mean 367.4/367.3/368.6  p95 739/731/733  compl 0.876/0.876/0.875  backlog 15.3/15.3/15.5  usd/run claude 0.0715  calls 168  lat_s 248
+warehouse-fault-a  flow mean 193.8/193.7/194.5  p95 391/377/382  compl 0.951/0.951/0.951  backlog 4.9/4.9/4.9  usd/run claude 0.0296  calls 117  lat_s 168
+== flow_mean_s ==
+  order-age-fifo warehouse-fault-a  mean   -0.077 CI [  -0.339,    0.162]   min -2.43 max 1.42
+  order-age-fifo warehouse-small-a  mean   -0.068 CI [  -0.241,    0.101]   min -1.21 max 0.82
+  order-age-fifo warehouse-surge-a  mean   -0.072 CI [  -0.643,    0.411]   min -5.89 max 2.02
+  claude-fifo warehouse-fault-a  mean    0.701 CI [  -0.151,    2.101]   min -2.61 max 18.64
+  claude-fifo warehouse-small-a  mean    0.820 CI [   0.115,    1.767] *  min -0.88 max 10.59
+  claude-fifo warehouse-surge-a  mean    1.169 CI [  -0.683,    3.629]   min -10.19 max 29.35
+  claude-order-age warehouse-fault-a  mean    0.778 CI [   0.005,    2.136] *  min -0.68 max 18.89
+  claude-order-age warehouse-small-a  mean    0.888 CI [   0.236,    1.774] *  min -0.57 max 10.00
+  claude-order-age warehouse-surge-a  mean    1.241 CI [  -0.627,    3.712]   min -12.00 max 30.17
+== flow_p95_s ==
+  order-age-fifo warehouse-fault-a  mean  -13.728 CI [ -19.082,   -8.220] *  min -44.16 max 22.87
+  order-age-fifo warehouse-small-a  mean  -16.190 CI [ -21.243,  -11.555] *  min -51.16 max 9.53
+  order-age-fifo warehouse-surge-a  mean   -7.906 CI [ -17.421,    1.446]   min -59.48 max 51.84
+  claude-fifo warehouse-fault-a  mean   -8.632 CI [ -15.221,   -0.849] *  min -44.16 max 62.10
+  claude-fifo warehouse-small-a  mean  -13.083 CI [ -17.796,   -8.875] *  min -50.27 max 7.44
+  claude-fifo warehouse-surge-a  mean   -5.883 CI [ -14.748,    3.084]   min -57.10 max 51.84
+  claude-order-age warehouse-fault-a  mean    5.096 CI [   0.460,   12.088] *  min -13.53 max 88.72
+  claude-order-age warehouse-small-a  mean    3.108 CI [   0.961,    5.748] *  min -5.89 max 30.11
+  claude-order-age warehouse-surge-a  mean    2.023 CI [  -2.906,    6.376]   min -50.15 max 34.13
+== completion_rate ==
+  order-age-fifo warehouse-fault-a  mean   -0.000 CI [  -0.001,    0.000]   min -0.01 max 0.00
+  order-age-fifo warehouse-small-a  mean   -0.000 CI [  -0.001,    0.000]   min -0.01 max 0.00
+  order-age-fifo warehouse-surge-a  mean   -0.000 CI [  -0.001,    0.000]   min -0.01 max 0.00
+  claude-fifo warehouse-fault-a  mean   -0.000 CI [  -0.001,    0.000]   min -0.01 max 0.00
+  claude-fifo warehouse-small-a  mean   -0.000 CI [  -0.001,    0.000]   min -0.01 max 0.00
+  claude-fifo warehouse-surge-a  mean   -0.002 CI [  -0.003,   -0.000] *  min -0.02 max 0.00
+  claude-order-age warehouse-fault-a  mean    0.000 CI [   0.000,    0.000]   min 0.00 max 0.00
+  claude-order-age warehouse-small-a  mean    0.000 CI [   0.000,    0.000]   min 0.00 max 0.00
+  claude-order-age warehouse-surge-a  mean   -0.001 CI [  -0.003,   -0.000] *  min -0.02 max 0.00
+== backlog_end ==
+  order-age-fifo warehouse-fault-a  mean    0.033 CI [   0.000,    0.100]   min 0.00 max 1.00
+  order-age-fifo warehouse-small-a  mean    0.033 CI [   0.000,    0.100]   min 0.00 max 1.00
+  order-age-fifo warehouse-surge-a  mean    0.033 CI [   0.000,    0.100]   min 0.00 max 1.00
+  claude-fifo warehouse-fault-a  mean    0.067 CI [   0.000,    0.167]   min 0.00 max 1.00
+  claude-fifo warehouse-small-a  mean    0.067 CI [   0.000,    0.167]   min 0.00 max 1.00
+  claude-fifo warehouse-surge-a  mean    0.167 CI [   0.000,    0.367]   min 0.00 max 2.00
+  claude-order-age warehouse-fault-a  mean    0.033 CI [   0.000,    0.100]   min 0.00 max 1.00
+  claude-order-age warehouse-small-a  mean    0.033 CI [   0.000,    0.100]   min 0.00 max 1.00
+  claude-order-age warehouse-surge-a  mean    0.133 CI [   0.000,    0.300]   min 0.00 max 2.00
