@@ -13,11 +13,25 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
-SCENARIO_SCHEMA_VERSION = "0.2"  # 0.2: faults, piecewise_poisson 추가
+SCENARIO_SCHEMA_VERSION = "0.3"  # 0.2: faults, piecewise_poisson / 0.3: reconfigurable
 
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ReconfigSpec(_Strict):
+    """셀 역할 전환 옵션 (공개 설계 정보, 결정 0005)."""
+
+    options: list[list[str]] = Field(min_length=2)
+    changeover_s: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _distinct(self):
+        norm = [tuple(sorted(o)) for o in self.options]
+        if any(not o for o in norm) or len(set(norm)) != len(norm):
+            raise ValueError("reconfig options must be non-empty and distinct")
+        return self
 
 
 class EntitySpec(_Strict):
@@ -26,6 +40,14 @@ class EntitySpec(_Strict):
     capabilities: list[str]
     capacity: int = Field(ge=0)
     properties: dict = Field(default_factory=dict)
+    reconfigurable: ReconfigSpec | None = None
+
+    @model_validator(mode="after")
+    def _current_is_option(self):
+        if self.reconfigurable is not None:
+            if tuple(sorted(self.capabilities)) not in [tuple(sorted(o)) for o in self.reconfigurable.options]:
+                raise ValueError(f"{self.id}: current capabilities must be one of its reconfig options")
+        return self
 
 
 class RelationSpec(_Strict):
@@ -128,7 +150,7 @@ class ObjectiveSpec(BaseModel):
 
 
 class Scenario(_Strict):
-    schema_version: Literal["0.1", "0.2"]
+    schema_version: Literal["0.1", "0.2", "0.3"]
     scenario_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     domain: Literal["warehouse_like"]
     seed: int
@@ -147,6 +169,8 @@ class Scenario(_Strict):
             self.faults or isinstance(self.workload.arrival_process, PiecewisePoissonArrival)
         ):
             raise ValueError("faults / piecewise_poisson require schema_version '0.2'")
+        if self.schema_version != "0.3" and any(e.reconfigurable for e in self.entities):
+            raise ValueError("reconfigurable entities require schema_version '0.3'")
         return self
 
     @model_validator(mode="after")

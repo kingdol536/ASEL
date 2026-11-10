@@ -14,6 +14,7 @@ from typing import Any, Protocol
 from asel.core.actions import Action, ActionKind
 from asel.core.invariants import check_invariants
 from asel.core.model import WorldState
+from asel.core.events import EventType
 from asel.core.world import ENV_ACTOR, World
 
 
@@ -41,7 +42,7 @@ class Dispatcher(Protocol):
 class _Item:
     time: float
     seq: int
-    kind: str  # "complete" | "external"
+    kind: str  # "complete" | "reconfig_done" | "external"
     data: Any = None
 
 
@@ -65,10 +66,16 @@ class Simulator:
         self._seq += 1
 
     def _submit(self, action: Action) -> None:
+        n0 = len(self.world.log)
         res = self.world.submit(action)
         if res.accepted and action.kind == ActionKind.START_TASK:
             task = self.world.state.tasks[action.params["task"]]
             self.schedule(task.started_at + task.duration, "complete", task.id)
+        if res.accepted:
+            # 전환이 시작됐으면(요청 즉시 또는 마지막 작업 완료 시) 완료를 예약한다
+            for ev in self.world.log[n0:]:
+                if ev.event_type == EventType.RECONFIGURATION_STARTED:
+                    self.schedule(ev.sim_time + ev.payload["changeover_s"], "reconfig_done", ev.entity_id)
 
     def _check(self) -> None:
         if self.check:
@@ -93,6 +100,8 @@ class Simulator:
                 item = heapq.heappop(self._queue)
                 if item.kind == "complete":
                     self._submit(Action(ENV_ACTOR, ActionKind.COMPLETE_TASK, {"task": item.data}))
+                elif item.kind == "reconfig_done":
+                    self._submit(Action(ENV_ACTOR, ActionKind.COMPLETE_RECONFIGURATION, {"entity": item.data}))
                 elif item.kind == "external":
                     actions, later = self.source.on_external(item.data, now)
                     for a in actions:
