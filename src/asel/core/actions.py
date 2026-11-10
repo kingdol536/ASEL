@@ -32,15 +32,19 @@ class Action:
     expected_version: int | None = None  # 지정하면 현재 world_version 과 같아야 적용
     # 제출자가 숨겨야 할 값(예: 환경이 만드는 작업의 실제 처리 시간). 비공개 로그로만 간다.
     private: dict = field(default_factory=dict)
+    reason: str | None = None  # 제안 주체가 밝힌 이유 (공개). 정책 설명 기록용
 
     def to_dict(self) -> dict:
         """공개 부분만. private 는 포함하지 않는다."""
-        return {
+        d = {
             "actor_id": self.actor_id,
             "kind": self.kind,
             "params": self.params,
             "expected_version": self.expected_version,
         }
+        if self.reason is not None:
+            d["reason"] = self.reason
+        return d
 
 
 @dataclass(frozen=True)

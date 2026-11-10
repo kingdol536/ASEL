@@ -24,6 +24,7 @@ from asel.runner import REPO_ROOT, run_scenario, write_run_detailed
 
 COLUMNS = [
     "scenario_id",
+    "policy",
     "seed",
     "run_id",
     "events",
@@ -64,17 +65,18 @@ def parse_seeds(spec: str) -> list[int]:
     return out
 
 
-def _one(args: tuple[str, int, str, bool, dict]) -> tuple[dict, float, int]:
-    scenario_path, seed, runs_root, check, code = args
+def _one(args: tuple[str, int, str, bool, dict, str]) -> tuple[dict, float, int]:
+    scenario_path, seed, runs_root, check, code, policy = args
     sc = load_scenario(scenario_path)
     t0 = time.perf_counter()
-    res = run_scenario(sc, seed=seed, check_invariants=check)
+    res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy)
     sim_s = time.perf_counter() - t0
     _, m = write_run_detailed(res, Path(runs_root), code=code)
     s = m["summary"]
     by = s["tasks_by_status"]
     row = {
         "scenario_id": sc.scenario_id,
+        "policy": res.policy_name,
         "seed": seed,
         "run_id": res.run_id,
         "events": s["events"],
@@ -106,7 +108,12 @@ def run_batch(
     out_root: Path,
     jobs: int = 1,
     check_invariants: bool = True,
+    policies: list[str] | None = None,
 ) -> Path:
+    """policies: 등록된 정책 이름 목록. 정책마다 같은 시나리오·시드로 실행한다 (대응 비교)."""
+    policies = policies or ["fifo"]
+    if len(set(policies)) != len(policies):
+        raise ValueError("duplicate policies")
     resolved = [str(Path(p).resolve()) for p in scenario_paths]
     if len(set(resolved)) != len(resolved):
         raise ValueError("duplicate scenario paths")
@@ -122,7 +129,12 @@ def run_batch(
     runs_root.mkdir(parents=True, exist_ok=False)
 
     code = code_revision(REPO_ROOT)  # 배치 동안 코드는 바뀌지 않는다
-    tasks = [(str(p), seed, str(runs_root), check_invariants, code) for p in scenario_paths for seed in seeds]
+    tasks = [
+        (str(p), seed, str(runs_root), check_invariants, code, pol)
+        for p in scenario_paths
+        for pol in policies
+        for seed in seeds
+    ]
 
     t0 = time.perf_counter()
     if jobs <= 1:
@@ -145,6 +157,7 @@ def run_batch(
             for sc, p in zip(scenarios, scenario_paths)
         ],
         "seeds": seeds,
+        "policies": policies,
         "n_runs": len(rows),
         "jobs": jobs,
         "check_invariants": check_invariants,

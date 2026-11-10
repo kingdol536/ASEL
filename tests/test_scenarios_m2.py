@@ -11,7 +11,7 @@ from asel.io.eventlog import encode_events
 from asel.io.scenario import Scenario, load_scenario
 from asel.runner import run_scenario
 from conftest import ROOT
-from test_reproducibility import _LifoDispatcher, _run_with
+from test_reproducibility import _LifoDispatcher, _run_with, fifo_runtime
 
 SURGE = ROOT / "scenarios" / "warehouse-surge-a.yaml"
 
@@ -43,9 +43,7 @@ def test_surge_doubles_arrival_rate_in_window(surge):
 
 def test_surge_workload_independent_of_policy(surge):
     """급증 시나리오에서도 정책이 달라도 같은 주문·처리 시간 (대응 비교 전제 재확인)."""
-    from asel.policies.fifo import FifoDispatcher
-
-    fifo = _run_with(surge, FifoDispatcher(), seed=13)
+    fifo = _run_with(surge, fifo_runtime(), seed=13)
     lifo = _run_with(surge, _LifoDispatcher(), seed=13)
     sig = lambda s: {k: (t.created_at, t.duration) for k, t in s.tasks.items()}
     assert sig(fifo) == sig(lifo)
