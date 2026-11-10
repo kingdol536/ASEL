@@ -13,7 +13,7 @@ from asel.core.invariants import check_invariants
 from asel.core.simulator import Simulator
 from asel.core.world import ENV_ACTOR, World
 from asel.domains.warehouse import OrderArrivals, world_init_payload
-from asel.io.eventlog import dumps_canonical, events_sha256, write_ndjson
+from asel.io.eventlog import dumps_canonical, events_sha256, write_run_logs
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import Scenario
 from asel.policies.fifo import FifoDispatcher
@@ -84,7 +84,7 @@ def write_run(res: RunResult, out_root: Path) -> Path:
     run_dir = out_root / res.scenario.scenario_id / f"{res.run_id}__{stamp}"
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    events_hash = write_ndjson(res.events, run_dir / "events.ndjson")
+    log_hashes = write_run_logs(res.events, run_dir)
     (run_dir / "final_state.json").write_text(
         dumps_canonical(res.world.state.snapshot()) + "\n", encoding="utf-8", newline="\n"
     )
@@ -98,7 +98,7 @@ def write_run(res: RunResult, out_root: Path) -> Path:
         "config_hash": res.scenario.config_hash(),
         "event_schema_version": SCHEMA_VERSION,
         "scenario_schema_version": res.scenario.schema_version,
-        "events_sha256": events_hash,
+        **log_hashes,
         "code": code_revision(REPO_ROOT),
         "environment": environment_info(),
         "policy": {"dispatcher": "dispatcher.fifo", "version": "0.1"},

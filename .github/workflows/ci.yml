@@ -25,12 +25,12 @@ jobs:
           uv run asel run scenarios/warehouse-small-a.yaml --seed 42 --out ci-runs
           RUN_DIR="$(ls -d ci-runs/warehouse-small-a/*/ | head -1)"
           uv run asel replay-check "$RUN_DIR"
-          cp "$RUN_DIR/events.ndjson" "events-${{ matrix.os }}.ndjson"
+          mkdir -p "run-${{ matrix.os }}" && cp "$RUN_DIR"/*.ndjson "run-${{ matrix.os }}/"
           grep events_sha256 "$RUN_DIR/manifest.json"
       - uses: actions/upload-artifact@v4
         with:
-          name: events-${{ matrix.os }}
-          path: events-${{ matrix.os }}.ndjson
+          name: run-${{ matrix.os }}
+          path: run-${{ matrix.os }}
 
   # 플랫폼 간 결정성 측정 (docs/decisions/0001). 결과를 기록만 하고 빌드를 막지 않는다(잠정).
   cross-os-determinism:
@@ -44,6 +44,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: logs
-          merge-multiple: true
       - name: Compare Windows vs Ubuntu event logs
-        run: uv run asel compare-logs logs/events-ubuntu-latest.ndjson logs/events-windows-latest.ndjson
+        run: |
+          ls -R logs
+          uv run asel compare-logs logs/run-ubuntu-latest logs/run-windows-latest

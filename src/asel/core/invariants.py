@@ -66,7 +66,7 @@ def check_invariants(state: WorldState) -> list[str]:
         if t.status == TaskStatus.COMPLETED:
             if t.started_at is None or t.completed_at is None:
                 v.append(f"task {t.id}: COMPLETED without timestamps")
-            elif t.completed_at < t.started_at + t.duration:
+            elif t.duration is not None and t.completed_at < t.started_at + t.duration:
                 v.append(f"task {t.id}: completed early")
 
     # 6. 선행 작업의 시작은 후속 작업보다 앞선다 (완료 시각 기준)

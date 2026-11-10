@@ -20,7 +20,8 @@ _actor = st.sampled_from([ENV_ACTOR, DISPATCHER, "intruder"])
 _create = st.builds(
     lambda actor, tid, cap, dur, preds: Action(
         actor, ActionKind.CREATE_TASK,
-        {"id": tid, "capability": cap, "duration": dur, "predecessors": preds},
+        {"id": tid, "capability": cap, "predecessors": preds},
+        private={"duration": dur},
     ),
     _actor,
     st.sampled_from(TASK_IDS),
@@ -53,9 +54,9 @@ def _plausible_action(data, w) -> Action:
             {
                 "id": f"n{len(tasks)}",
                 "capability": data.draw(st.sampled_from(["pick", "pack"])),
-                "duration": data.draw(st.floats(min_value=0.5, max_value=20)),
                 "predecessors": preds,
             },
+            private={"duration": data.draw(st.floats(min_value=0.5, max_value=20))},
         )
     tid = data.draw(st.sampled_from(tasks))
     if kind == "start":

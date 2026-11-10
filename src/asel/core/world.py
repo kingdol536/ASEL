@@ -71,7 +71,7 @@ def apply_event(state: WorldState, ev: Event) -> None:
         state.tasks[tid] = Task(
             id=tid,
             capability=p["capability"],
-            duration=float(p["duration"]),
+            duration=float(ev.private["duration"]) if "duration" in ev.private else None,
             predecessors=tuple(p["predecessors"]),
             status=TaskStatus.CREATED,
             created_index=int(p["created_index"]),
@@ -154,7 +154,15 @@ class World:
 
     # -- 내부: 이벤트 발행 ------------------------------------------------
 
-    def _emit(self, actor: str, etype: str, entity_id: str | None, payload: dict, version: int) -> Event:
+    def _emit(
+        self,
+        actor: str,
+        etype: str,
+        entity_id: str | None,
+        payload: dict,
+        version: int,
+        private: dict | None = None,
+    ) -> Event:
         ev = Event(
             run_id=self.run_id,
             seq=self._seq,
@@ -164,6 +172,7 @@ class World:
             event_type=etype,
             entity_id=entity_id,
             payload=payload,
+            private=private or {},
         )
         apply_event(self.state, ev)
         self._seq += 1
@@ -203,7 +212,8 @@ class World:
         if not self._initialized:
             raise RuntimeError("world not initialized")
         v = self.state.version
-        self._emit(action.actor_id, EventType.ACTION_PROPOSED, None, {"action": action.to_dict()}, v)
+        hidden = {"action_private": dict(action.private)} if action.private else None
+        self._emit(action.actor_id, EventType.ACTION_PROPOSED, None, {"action": action.to_dict()}, v, hidden)
 
         reasons = self.validate(action)
         if reasons:
@@ -213,13 +223,14 @@ class World:
                 None,
                 {"action": action.to_dict(), "reasons": list(reasons)},
                 v,
+                hidden,
             )
             return ActionResult(accepted=False, reasons=tuple(reasons), world_version=v)
 
         effects = self._plan_effects(action)  # 상태를 바꾸기 전에 전부 계산
         new_v = v + 1
-        for etype, entity_id, payload in effects:
-            self._emit(action.actor_id, etype, entity_id, payload, new_v)
+        for etype, entity_id, payload, private in effects:
+            self._emit(action.actor_id, etype, entity_id, payload, new_v, private)
         if action.kind == ActionKind.CREATE_TASK:
             self._index_new_task(action.params)
         return ActionResult(accepted=True, world_version=new_v)
@@ -236,19 +247,22 @@ class World:
             r.append(
                 f"stale world version: expected {action.expected_version}, current {self.state.version}"
             )
-        if not isinstance(action.params, dict):
-            return r + ["params must be a dict"]
+        if not isinstance(action.params, dict) or not isinstance(action.private, dict):
+            return r + ["params and private must be dicts"]
 
         if action.kind == ActionKind.CREATE_TASK:
-            r += self._validate_create(action.params)
+            r += self._validate_create(action.params, action.private)
         elif action.kind == ActionKind.START_TASK:
             r += self._validate_start(action.params)
         elif action.kind == ActionKind.COMPLETE_TASK:
             r += self._validate_complete(action.params)
         return r
 
-    def _validate_create(self, p: dict) -> list[str]:
+    def _validate_create(self, p: dict, hidden: dict) -> list[str]:
         r = []
+        if "duration" in p:
+            # 숨겨진 참값이 공개 로그로 새지 않도록 제출 형식에서 강제한다
+            r.append("create_task: duration is hidden truth; pass it in private, not params")
         tid = p.get("id")
         if not isinstance(tid, str) or not tid:
             return ["create_task: id must be a non-empty string"]
@@ -257,7 +271,7 @@ class World:
         cap = p.get("capability")
         if not isinstance(cap, str) or not cap:
             r.append("create_task: capability must be a non-empty string")
-        dur = p.get("duration")
+        dur = hidden.get("duration")
         if isinstance(dur, bool) or not isinstance(dur, (int, float)) or not math.isfinite(dur) or dur <= 0:
             r.append("create_task: duration must be a finite positive number")
         preds = p.get("predecessors", [])
@@ -311,7 +325,7 @@ class World:
 
     # -- 효과 계산 (상태 변경 없음) ---------------------------------------
 
-    def _plan_effects(self, a: Action) -> list[tuple[str, str | None, dict]]:
+    def _plan_effects(self, a: Action) -> list[tuple[str, str | None, dict, dict | None]]:
         p = a.params
         if a.kind == ActionKind.CREATE_TASK:
             preds = list(p.get("predecessors", []))
@@ -323,30 +337,31 @@ class World:
                     p["id"],
                     {
                         "capability": p["capability"],
-                        "duration": float(p["duration"]),
                         "predecessors": preds,
                         "created_index": self._next_created_index,
                         "tags": dict(p.get("tags", {})),
                     },
+                    {"duration": float(a.private["duration"])},
                 ),
-                (EventType.TASK_STATE_CHANGED, p["id"], {"from": "CREATED", "to": str(nxt)}),
+                (EventType.TASK_STATE_CHANGED, p["id"], {"from": "CREATED", "to": str(nxt)}, None),
             ]
 
         if a.kind == ActionKind.START_TASK:
             return [
-                (EventType.RESOURCE_RESERVED, p["entity"], {"task": p["task"]}),
+                (EventType.RESOURCE_RESERVED, p["entity"], {"task": p["task"]}, None),
                 (
                     EventType.TASK_STATE_CHANGED,
                     p["task"],
                     {"from": "READY", "to": "RUNNING", "entity": p["entity"]},
+                    None,
                 ),
             ]
 
         if a.kind == ActionKind.COMPLETE_TASK:
             task = self.state.tasks[p["task"]]
-            effects: list[tuple[str, str | None, dict]] = [
-                (EventType.TASK_STATE_CHANGED, task.id, {"from": "RUNNING", "to": "COMPLETED"}),
-                (EventType.RESOURCE_RELEASED, task.assigned_entity, {"task": task.id}),
+            effects: list[tuple[str, str | None, dict, dict | None]] = [
+                (EventType.TASK_STATE_CHANGED, task.id, {"from": "RUNNING", "to": "COMPLETED"}, None),
+                (EventType.RESOURCE_RELEASED, task.assigned_entity, {"task": task.id}, None),
             ]
             for sid in self._successors.get(task.id, []):
                 succ = self.state.tasks[sid]
@@ -358,7 +373,7 @@ class World:
                 )
                 if others_done:
                     effects.append(
-                        (EventType.TASK_STATE_CHANGED, sid, {"from": "WAITING", "to": "READY"})
+                        (EventType.TASK_STATE_CHANGED, sid, {"from": "WAITING", "to": "READY"}, None)
                     )
             return effects
 

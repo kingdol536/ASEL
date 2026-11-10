@@ -77,7 +77,7 @@ class Resource:
 class Task:
     id: str
     capability: str
-    duration: float  # 실제 처리 시간. 비공개 필드(M3에서 관측 투영 시 숨김)
+    duration: float | None  # 실제 처리 시간 = 숨겨진 참값. 공개 로그만으로 재생하면 None
     predecessors: tuple[str, ...] = ()
     status: TaskStatus = TaskStatus.CREATED
     created_index: int = 0  # 생성 순번. FIFO 동률 처리용

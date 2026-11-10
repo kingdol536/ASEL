@@ -33,7 +33,8 @@ def create(tid: str, cap: str = "pick", duration: float = 10.0, preds=()) -> Act
     return Action(
         ENV_ACTOR,
         ActionKind.CREATE_TASK,
-        {"id": tid, "capability": cap, "duration": duration, "predecessors": list(preds)},
+        {"id": tid, "capability": cap, "predecessors": list(preds)},
+        private={"duration": duration},
     )
 
 

@@ -66,10 +66,10 @@ class OrderArrivals:
                     {
                         "id": tid,
                         "capability": step.capability,
-                        "duration": self._sample(step.service_time),
                         "predecessors": [prev] if prev else [],
                         "tags": {"order": order_id, "step": i},
                     },
+                    private={"duration": self._sample(step.service_time)},
                 )
             )
             prev = tid
