@@ -72,3 +72,30 @@ def test_batch_writes_eval_and_paired_compare(tmp_path):
     out = paired_compare(rows, "flow_mean_s", "fifo", "order-age")
     assert out[0]["n_pairs"] == 3 and out[0]["ci95_low"] <= out[0]["mean_diff"] <= out[0]["ci95_high"]
     assert json.loads((bd / "batch.json").read_text(encoding="utf-8"))["safety_boundary_all_ok"] is True
+
+
+def test_invalid_rate_excludes_fallback_proposals(tmp_path):
+    """대체(FIFO) 제안은 정책 자신의 무효 제안 비율에 섞이지 않는다 (리뷰 지적)."""
+    from test_claude_policy import FakeClient, FlakyClient, _policy  # noqa: F401
+
+    sc = load_scenario(ROOT / "scenarios" / "warehouse-small-a.yaml").model_copy(update={"sim_time_limit": 900.0})
+
+    class FlakyMistakes(FlakyClient):
+        def __init__(self):
+            super().__init__(mistake_every=2)
+
+    res = run_scenario(sc, seed=3, policy=_policy(tmp_path, FlakyMistakes()))
+    ev = evaluate_run(write_run(res, tmp_path / "runs"))
+    d = ev["decisions"]
+    assert d["fallback_proposals"] > 0 and d["rejected"] > 0
+    own_props = [e for e in res.events if e.event_type == "ActionProposed" and e.actor_id == "policy.claude"
+                 and e.payload["action"].get("reason") != "fallback"]
+    assert d["proposals"] == len(own_props)
+    assert d["invalid_proposal_rate"] == pytest.approx(d["rejected"] / d["proposals"])
+
+
+def test_cli_run_writes_evaluation(tmp_path):
+    from asel.cli import main
+
+    assert main(["run", str(SURGE), "--seed", "1", "--out", str(tmp_path)]) == 0
+    assert list(tmp_path.glob("*/*/evaluation.json"))

@@ -18,9 +18,10 @@ from pathlib import Path
 
 from asel.core.invariants import check_invariants
 from asel.core.world import replay
-from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG, read_public, read_run
+from asel.core.events import Event
+from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.1"
+EVALUATOR_VERSION = "eval-0.2"  # 0.2: 무효 제안 비율에서 대체 제안 분리
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 
@@ -79,38 +80,63 @@ def order_metrics(events) -> dict:
 
 
 def decision_metrics(events, policy_actor: str | None) -> dict:
-    proposed = rejected = 0
+    """정책 자신의 제안과, 정책이 실패해 대체 규칙(FIFO)이 낸 제안(reason == 'fallback')을 나눠 센다.
+    무효 제안 비율은 정책 자신의 제안만으로 계산한다 (대체 제안은 항상 유효해 비율을 희석하므로)."""
+    own = own_rej = fb = fb_rej = 0
     for e in events:
         if policy_actor and e.actor_id != policy_actor:
             continue
         if not (e.actor_id or "").startswith("policy."):
             continue
+        if e.event_type not in ("ActionProposed", "ActionRejected"):
+            continue
+        is_fb = e.payload.get("action", {}).get("reason") == "fallback"
         if e.event_type == "ActionProposed":
-            proposed += 1
-        elif e.event_type == "ActionRejected":
-            rejected += 1
+            fb, own = (fb + 1, own) if is_fb else (fb, own + 1)
+        else:
+            fb_rej, own_rej = (fb_rej + 1, own_rej) if is_fb else (fb_rej, own_rej + 1)
     return {
-        "proposals": proposed,
-        "rejected": rejected,
-        "invalid_proposal_rate": (rejected / proposed) if proposed else None,
+        "proposals": own,
+        "rejected": own_rej,
+        "invalid_proposal_rate": (own_rej / own) if own else None,
+        "fallback_proposals": fb,
+        "fallback_rejected": fb_rej,
     }
 
 
+def _keys(obj, out: set) -> set:
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            out.add(k)
+            _keys(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _keys(v, out)
+    return out
+
+
 def evaluate_run(run_dir: Path) -> dict:
-    public = read_public(run_dir / PUBLIC_LOG)
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     policy = manifest.get("policy", {})
     usage = policy.get("usage", {}) or {}
+
+    # 공개 로그는 한 번만 읽는다: 숨김 키 검사(실제 JSON 키를 순회)와 공개 이벤트 복원에 같이 쓴다
+    pub_dicts = [json.loads(line) for line in (run_dir / PUBLIC_LOG).read_text(encoding="utf-8").splitlines() if line]
+    public = [Event.from_dict(d) for d in pub_dicts]
+    leaked = sorted(_keys(pub_dicts, set()) & set(HIDDEN_PUBLIC_KEYS))
 
     # 운영 지표: 공개 로그만
     pub_state = replay(public)
     backlog_end = sum(1 for t in pub_state.tasks.values() if str(t.status) in ("READY", "WAITING"))
 
-    # H1 안전 경계: 전체 로그로 불변조건 재검사 + 공개 로그 숨김 키 검사
-    full_state = replay(read_run(run_dir))
+    # H1 안전 경계: 공개+비공개로 불변조건 재검사
+    hidden = {}
+    for line in (run_dir / PRIVATE_LOG).read_text(encoding="utf-8").splitlines():
+        if line:
+            rec = json.loads(line)
+            hidden[rec["seq"]] = rec["private"]
+    full_state = replay([Event.from_dict({**d, "private": hidden.get(d["seq"], {})}) for d in pub_dicts])
     violations = check_invariants(full_state)
-    pub_text = (run_dir / PUBLIC_LOG).read_text(encoding="utf-8")
-    leaked = [k for k in HIDDEN_PUBLIC_KEYS if f'"{k}"' in pub_text]
 
     decisions = usage.get("decisions") or 0
     n_fallback = sum((usage.get("fallbacks") or {}).values())
@@ -154,7 +180,7 @@ def write_evaluation(run_dir: Path) -> dict:
 EVAL_COLUMNS = [
     "scenario_id", "policy", "seed", "orders_arrived", "orders_completed", "completion_rate",
     "flow_mean_s", "flow_median_s", "flow_p95_s", "censored_n", "backlog_end",
-    "proposals", "invalid_proposal_rate", "policy_decisions", "fallback_rate",
+    "proposals", "invalid_proposal_rate", "fallback_proposals", "policy_decisions", "fallback_rate",
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
 ]
 
@@ -168,7 +194,8 @@ def eval_row(ev: dict) -> dict:
         "flow_mean_s": o["order_flow_time_s"]["mean"], "flow_median_s": o["order_flow_time_s"]["median"],
         "flow_p95_s": o["order_flow_time_s"]["p95"], "censored_n": o["orders_censored"]["n"],
         "backlog_end": ev["backlog_end"], "proposals": d["proposals"],
-        "invalid_proposal_rate": d["invalid_proposal_rate"], "policy_decisions": ev["policy_decisions"],
+        "invalid_proposal_rate": d["invalid_proposal_rate"], "fallback_proposals": d["fallback_proposals"],
+        "policy_decisions": ev["policy_decisions"],
         "fallback_rate": ev["fallback_rate"], "api_calls": c.get("api_calls", 0),
         "input_tokens": c.get("input_tokens", 0), "output_tokens": c.get("output_tokens", 0),
         "usd_estimate": c.get("usd_estimate", 0.0), "latency_ms_total": c.get("latency_ms_total", 0.0),

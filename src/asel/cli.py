@@ -24,6 +24,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     sc = load_scenario(args.scenario)
     res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants, policy=args.policy)
     run_dir = write_run(res, Path(args.out))
+    from asel.evaluation.evaluator import write_evaluation
+
+    write_evaluation(run_dir)  # 단일 실행도 일괄 실행과 같은 산출물(evaluation.json)을 남긴다
     print(f"run_dir: {run_dir}")
     print(json.dumps(res.summary(), indent=2, ensure_ascii=False))
     return 0
