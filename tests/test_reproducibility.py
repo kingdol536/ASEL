@@ -61,6 +61,13 @@ class _LifoDispatcher:
         return out
 
 
+def fifo_runtime():
+    from asel.policies.contract import PolicyRuntime
+    from asel.policies.fifo import FifoPolicy
+
+    return PolicyRuntime(FifoPolicy(), actor_id="policy.fifo")
+
+
 def _run_with(sc, dispatcher, seed):
     from asel.runner import default_grants
 
@@ -72,9 +79,7 @@ def _run_with(sc, dispatcher, seed):
 
 def test_workload_is_independent_of_dispatch_policy(scenario_a):
     """대응 비교의 전제: 정책이 달라도 같은 시드면 같은 주문·같은 처리 시간."""
-    from asel.policies.fifo import FifoDispatcher
-
-    fifo = _run_with(scenario_a, FifoDispatcher(), seed=11)
+    fifo = _run_with(scenario_a, fifo_runtime(), seed=11)
     lifo = _run_with(scenario_a, _LifoDispatcher(), seed=11)
     sig = lambda s: {k: (t.created_at, t.duration, t.predecessors) for k, t in s.tasks.items()}
     assert sig(fifo) == sig(lifo)

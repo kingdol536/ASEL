@@ -22,7 +22,7 @@ from asel.runner import run_scenario, write_run
 
 def _cmd_run(args: argparse.Namespace) -> int:
     sc = load_scenario(args.scenario)
-    res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants)
+    res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants, policy=args.policy)
     run_dir = write_run(res, Path(args.out))
     print(f"run_dir: {run_dir}")
     print(json.dumps(res.summary(), indent=2, ensure_ascii=False))
@@ -55,7 +55,13 @@ def _cmd_compare_logs(args: argparse.Namespace) -> int:
 def _cmd_batch(args: argparse.Namespace) -> int:
     from asel.batch import parse_seeds, run_batch
 
-    d = run_batch(args.scenarios, parse_seeds(args.seeds), Path(args.out), jobs=args.jobs)
+    d = run_batch(
+        args.scenarios,
+        parse_seeds(args.seeds),
+        Path(args.out),
+        jobs=args.jobs,
+        policies=[p.strip() for p in args.policies.split(",") if p.strip()],
+    )
     info = json.loads((d / "batch.json").read_text(encoding="utf-8"))
     print(f"batch_dir: {d}")
     print(json.dumps({k: info[k] for k in ("n_runs", "throughput", "invariant_violations_total")}, indent=2, ensure_ascii=False))
@@ -79,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--seed", type=int, default=None, help="override scenario seed")
     r.add_argument("--out", default="experiments/runs")
     r.add_argument("--no-invariants", action="store_true", help="skip per-step invariant checks")
+    r.add_argument("--policy", default="fifo", help="registered policy name (fifo, order-age, ...)")
     r.set_defaults(func=_cmd_run)
 
     c = sub.add_parser("replay-check", help="rebuild state from events.ndjson and compare")
@@ -100,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--seeds", default="0-29", help="e.g. 0-29 or 1,2,5")
     b.add_argument("--out", default="experiments/batches")
     b.add_argument("--jobs", type=int, default=1, help="parallel worker processes")
+    b.add_argument("--policies", default="fifo", help="comma-separated policy names, e.g. fifo,order-age")
     b.set_defaults(func=_cmd_batch)
 
     args = ap.parse_args(argv)

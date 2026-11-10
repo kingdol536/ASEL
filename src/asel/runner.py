@@ -16,7 +16,8 @@ from asel.domains.warehouse import WarehouseWorkload, world_init_payload
 from asel.io.eventlog import dumps_canonical, events_sha256, write_run_logs
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import Scenario
-from asel.policies.fifo import FifoDispatcher
+from asel.policies.contract import PolicyRuntime
+from asel.policies.registry import make_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -29,6 +30,9 @@ class RunResult:
     world: World
     started_utc: str
     finished_utc: str
+    policy_name: str = "fifo"
+    policy_actor: str = "policy.fifo"
+    policy_usage: dict | None = None
 
     @property
     def events(self) -> list[Event]:
@@ -69,23 +73,31 @@ def default_grants(dispatcher_id: str) -> dict[str, frozenset[str]]:
     return {ENV_ACTOR: ENV_ACTIONS, dispatcher_id: frozenset({ActionKind.START_TASK})}
 
 
-def make_run_id(sc: Scenario, seed: int) -> str:
-    return f"{sc.scenario_id}__seed{seed}__cfg{sc.config_hash()[:8]}"
+def make_run_id(sc: Scenario, seed: int, policy_name: str = "fifo") -> str:
+    return f"{sc.scenario_id}__{policy_name}__seed{seed}__cfg{sc.config_hash()[:8]}"
 
 
-def run_scenario(sc: Scenario, seed: int | None = None, check_invariants: bool = True) -> RunResult:
+def run_scenario(
+    sc: Scenario,
+    seed: int | None = None,
+    check_invariants: bool = True,
+    policy: str | object = "fifo",
+) -> RunResult:
+    """policy: 등록된 정책 이름 또는 PolicyAdapter 객체. 정책은 관측만 받는다 (#9)."""
     seed = sc.seed if seed is None else seed
-    run_id = make_run_id(sc, seed)
+    pol = make_policy(policy) if isinstance(policy, str) else policy
+    run_id = make_run_id(sc, seed, pol.name)
     started = datetime.now(UTC).isoformat(timespec="seconds")
 
-    dispatcher = FifoDispatcher()
-    world = World(run_id, grants=default_grants(dispatcher.actor_id))
+    runtime = PolicyRuntime(pol, actor_id=f"policy.{pol.name}")
+    world = World(run_id, grants=default_grants(runtime.actor_id))
     world.initialize(*world_init_payload(sc))
-    sim = Simulator(world, WarehouseWorkload(sc, seed), dispatcher, check_invariants=check_invariants)
+    runtime.reset(run_id)
+    sim = Simulator(world, WarehouseWorkload(sc, seed), runtime, check_invariants=check_invariants)
     sim.run(until=sc.sim_time_limit)
 
     finished = datetime.now(UTC).isoformat(timespec="seconds")
-    return RunResult(run_id, sc, seed, world, started, finished)
+    return RunResult(run_id, sc, seed, world, started, finished, pol.name, runtime.actor_id, runtime.usage())
 
 
 def write_run(res: RunResult, out_root: Path, code: dict | None = None) -> Path:
@@ -116,7 +128,7 @@ def write_run_detailed(res: RunResult, out_root: Path, code: dict | None = None)
         **log_hashes,
         "code": code if code is not None else code_revision(REPO_ROOT),
         "environment": environment_info(),
-        "policy": {"dispatcher": "dispatcher.fifo", "version": "0.1"},
+        "policy": {"name": res.policy_name, "actor_id": res.policy_actor, "usage": res.policy_usage or {}},
         "evaluator": None,  # M3 에서 도입
         "started_utc": res.started_utc,
         "finished_utc": res.finished_utc,
