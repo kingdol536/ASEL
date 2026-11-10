@@ -18,6 +18,7 @@ from concurrent.futures import ProcessPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
+from asel.evaluation.evaluator import EVAL_COLUMNS, eval_row, write_evaluation
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import load_scenario
 from asel.runner import REPO_ROOT, run_scenario, write_run_detailed
@@ -65,13 +66,14 @@ def parse_seeds(spec: str) -> list[int]:
     return out
 
 
-def _one(args: tuple[str, int, str, bool, dict, str]) -> tuple[dict, float, int]:
+def _one(args: tuple[str, int, str, bool, dict, str]) -> tuple[dict, float, int, dict]:
     scenario_path, seed, runs_root, check, code, policy = args
     sc = load_scenario(scenario_path)
     t0 = time.perf_counter()
     res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy)
     sim_s = time.perf_counter() - t0
-    _, m = write_run_detailed(res, Path(runs_root), code=code)
+    run_dir, m = write_run_detailed(res, Path(runs_root), code=code)
+    ev = write_evaluation(run_dir)  # 실행이 끝난 뒤 평가 (정책은 평가 결과를 보지 않는다)
     s = m["summary"]
     by = s["tasks_by_status"]
     row = {
@@ -91,15 +93,31 @@ def _one(args: tuple[str, int, str, bool, dict, str]) -> tuple[dict, float, int]
         "events_sha256": m["events_sha256"],
         "private_events_sha256": m["private_events_sha256"],
     }
-    return row, sim_s, s["events"]
+    return row, sim_s, s["events"], eval_row(ev)
 
 
-def summary_csv(rows: list[dict]) -> str:
+def summary_csv(rows: list[dict], columns: list[str] = COLUMNS) -> str:
     buf = io.StringIO()
-    w = csv.DictWriter(buf, fieldnames=COLUMNS, lineterminator="\n")
+    w = csv.DictWriter(buf, fieldnames=columns, lineterminator="\n")
     w.writeheader()
     w.writerows(rows)
     return buf.getvalue()
+
+
+def reevaluate_batch(batch_dir: Path) -> Path:
+    """기존 배치의 실행들을 현재 평가기로 다시 평가해 batch_eval.csv 를 새로 쓴다 (시뮬레이션은 다시 하지 않음).
+    행 순서는 batch_summary.csv 를 따른다."""
+    with open(batch_dir / "batch_summary.csv", encoding="utf-8") as f:
+        order = [(r["scenario_id"], r["run_id"]) for r in csv.DictReader(f)]
+    rows = []
+    for scenario_id, run_id in order:
+        matches = sorted((batch_dir / "runs" / scenario_id).glob(f"{run_id}__*"))
+        if len(matches) != 1:
+            raise ValueError(f"expected one run dir for {run_id}, found {len(matches)}")
+        rows.append(eval_row(write_evaluation(matches[0])))
+    out = batch_dir / "batch_eval.csv"
+    out.write_text(summary_csv(rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
+    return out
 
 
 def run_batch(
@@ -114,9 +132,7 @@ def run_batch(
     policies = policies or ["fifo"]
     if len(set(policies)) != len(policies):
         raise ValueError("duplicate policies")
-    if "claude" in policies and jobs > 1:
-        # 예산 장부는 한 프로세스의 순차 실행을 전제로 한다 (동시 갱신 시 상한을 넘을 수 있음)
-        raise ValueError("the claude policy must run with jobs=1 (shared budget ledger)")
+    # claude 정책도 병렬 가능: 예산 장부는 잠금 안에서 예약·정산하고, 응답 캐시는 먼저 기록한 응답이 이긴다 (#19)
     resolved = [str(Path(p).resolve()) for p in scenario_paths]
     if len(set(resolved)) != len(resolved):
         raise ValueError("duplicate scenario paths")
@@ -147,11 +163,13 @@ def run_batch(
             results = list(ex.map(_one, tasks))  # 입력 순서 유지
     wall_s = time.perf_counter() - t0
 
-    rows = [r for r, _, _ in results]
+    rows = [r for r, _, _, _ in results]
     (batch_dir / "batch_summary.csv").write_text(summary_csv(rows), encoding="utf-8", newline="\n")
+    eval_rows = [e for _, _, _, e in results]
+    (batch_dir / "batch_eval.csv").write_text(summary_csv(eval_rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
 
-    total_events = sum(n for _, _, n in results)
-    sim_s = sum(s for _, s, _ in results)
+    total_events = sum(n for _, _, n, _ in results)
+    sim_s = sum(s for _, s, _, _ in results)
     info = {
         "batch_id": batch_id,
         "started_utc": started.isoformat(timespec="seconds"),
@@ -172,6 +190,7 @@ def run_batch(
             "note": "wall_s 는 로그·manifest 쓰기와 git 조회를 포함한다. simulate_s_sum 은 시뮬레이션만.",
         },
         "invariant_violations_total": sum(r["invariant_violations"] for r in rows),
+        "safety_boundary_all_ok": all(e["boundary_ok"] for e in eval_rows),
         "code": code,
         "environment": environment_info(),
     }

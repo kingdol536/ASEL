@@ -24,6 +24,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     sc = load_scenario(args.scenario)
     res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants, policy=args.policy)
     run_dir = write_run(res, Path(args.out))
+    from asel.evaluation.evaluator import write_evaluation
+
+    write_evaluation(run_dir)  # 단일 실행도 일괄 실행과 같은 산출물(evaluation.json)을 남긴다
     print(f"run_dir: {run_dir}")
     print(json.dumps(res.summary(), indent=2, ensure_ascii=False))
     return 0
@@ -76,6 +79,24 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_evaluate(args: argparse.Namespace) -> int:
+    from asel.evaluation.evaluator import write_evaluation
+
+    ev = write_evaluation(Path(args.run_dir))
+    print(json.dumps(ev, indent=2, ensure_ascii=False))
+    return 0 if ev["safety_boundary"]["ok"] else 1
+
+
+def _cmd_compare(args: argparse.Namespace) -> int:
+    from asel.evaluation.paired import load_eval_rows, paired_compare
+
+    rows = load_eval_rows(Path(args.batch_dir))
+    for metric in args.metrics.split(","):
+        for r in paired_compare(rows, metric.strip(), args.a, args.b):
+            print(json.dumps(r, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="asel")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -101,6 +122,21 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("run_dir")
     v.add_argument("--out", default=None)
     v.set_defaults(func=_cmd_view)
+
+    e = sub.add_parser("evaluate", help="independent evaluation of a run dir -> evaluation.json")
+    e.add_argument("run_dir")
+    e.set_defaults(func=_cmd_evaluate)
+
+    rb = sub.add_parser("reevaluate", help="re-run the current evaluator over an existing batch")
+    rb.add_argument("batch_dir")
+    rb.set_defaults(func=lambda a: print(__import__("asel.batch", fromlist=["x"]).reevaluate_batch(Path(a.batch_dir))) or 0)
+
+    cp = sub.add_parser("compare", help="paired policy comparison over a batch (bootstrap 95% CI)")
+    cp.add_argument("batch_dir")
+    cp.add_argument("--a", required=True, help="baseline policy name")
+    cp.add_argument("--b", required=True, help="treatment policy name")
+    cp.add_argument("--metrics", default="flow_mean_s,flow_p95_s,completion_rate,backlog_end")
+    cp.set_defaults(func=_cmd_compare)
 
     b = sub.add_parser("batch", help="run scenarios x seeds headless")
     b.add_argument("scenarios", nargs="+")
