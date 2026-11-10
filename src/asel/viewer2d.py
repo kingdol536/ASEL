@@ -57,7 +57,7 @@ def build_view(events: list[Event]) -> _View:
         p = ev.payload
         et = ev.event_type
         if et == "WorldInitialized":
-            v.entities = p["entities"]
+            v.entities = [dict(e) for e in p["entities"]]  # 이벤트 원본을 바꾸지 않도록 복사
             v.relations = p["relations"]
             for e in v.entities:
                 v.bars[e["id"]] = []
@@ -96,6 +96,9 @@ def build_view(events: list[Event]) -> _View:
                 segs[-1][2] = ev.sim_time
             segs.append(["changeover", ev.sim_time, None, target])
         elif et == "ReconfigurationCompleted":
+            for ent in v.entities:  # 그래프는 실행 종료 시점의 역할로 그린다
+                if ent["id"] == ev.entity_id:
+                    ent["capabilities"] = list(p["capabilities"])
             segs = v.reconf.get(ev.entity_id, [])
             if segs and segs[-1][2] is None:
                 segs[-1][2] = ev.sim_time
@@ -290,7 +293,7 @@ def render_html(v: _View) -> str:
 <h1>실행 재생 (2D)</h1>
 <div class="meta">{_esc(v.run_id)} · 사건 {v.n_events}개 · 종료 {v.end_time:.0f}s · 시작된 작업 {n_tasks}개</div>
 <p class="note">공개 로그만으로 그린 화면입니다. 실제 처리 시간·고장 원인 같은 숨겨진 값은 포함하지 않습니다. 시나리오 수치는 가상 값입니다.</p>
-<h2>셀 연결</h2><section>{_graph_svg(v, colors)}</section>
+<h2>셀 연결</h2><section>{_graph_svg(v, colors)}<p class="note">셀 역할은 실행 종료 시점 기준입니다.</p></section>
 <h2>셀별 작업 타임라인</h2><section>{_gantt_svg(v, colors)}<div class="legend">{legend}</div>
 <p class="note">막대에 마우스를 올리면 작업 id와 시각이 보입니다. 흐린 막대는 종료 시점에 진행 중이던 작업입니다.</p></section>
 <h2>대기(READY) 작업 수</h2><section>{_ready_svg(v, colors)}<div class="legend">{cap_legend}</div></section>

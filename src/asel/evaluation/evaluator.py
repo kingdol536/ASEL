@@ -22,7 +22,7 @@ from asel.core.events import Event
 from asel.evaluation.bottleneck import structure_metrics
 from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.3"  # 0.2: 무효 제안 비율에서 대체 제안 분리 / 0.3: 병목·재구성 지표
+EVALUATOR_VERSION = "eval-0.4"  # 0.2: 대체 제안 분리 / 0.3: 병목·재구성 지표 / 0.4: 비우는 중 셀 용량·잃은 용량 정의 수정
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 

@@ -67,3 +67,40 @@ def test_metrics_need_only_public_log(tmp_path):
     assert m["reconfig_completed"] == kinds.count("ReconfigurationCompleted") > 0
     assert m["changeover_s_total"] == pytest.approx(120.0 * m["reconfig_completed"])
     assert len(m["bottleneck_by_window"]) == 12  # 3600s / 300s
+
+
+def test_draining_cell_counts_running_work_as_capacity_and_not_lost():
+    """비우는 중 셀이 처리 중인 작업은 수요이자 가용 용량이다 (평가기 0.4, 리뷰 지적).
+    flex 가 pick 작업 1개를 처리하며 비우는 동안: pick 수요 1 / 가용 (pick-1 1 + flex 처리 중 1) = 0.5.
+    그 동안 flex 는 놀지 않으므로 잃은 용량도 0. 작업이 끝나 전환이 시작되면 그때부터 잃는다."""
+    w = world()
+    w.submit(create("p", cap="pick", duration=50))
+    w.submit(start("p", "flex", actor=DISP))
+    w.submit(req("flex", ["pack"]))  # 비우기 시작 (t=0)
+    w.advance_to(50)
+    w.submit(Action(ENV_ACTOR, ActionKind.COMPLETE_TASK, {"task": "p"}))  # 전환 시작 (t=50)
+    w.advance_to(150)
+    w.submit(done("flex"))  # 전환 완료 (t=150)
+    w.end_run(200)
+    m = structure_metrics(w.log, window_s=50)
+    assert m["load_mean"]["pick"] == pytest.approx(0.5 * 50 / 200)
+    assert m["draining_s_total"] == 50 and m["changeover_s_total"] == 100
+    assert m["lost_capacity_s"] == pytest.approx(100.0)  # 비우는 50s 는 일하는 중이라 손실 아님
+
+
+def test_policy_pressure_counts_pending_target_capacity():
+    from asel.policies.contract import Observation
+    from asel.policies.structure import pressures
+
+    base = {"type": "w", "reserved": 0, "out_of_service": 0, "available": 1,
+            "reconfig": {"options": [["pick"], ["pack"]], "changeover_s": 60.0}}
+    cells = (
+        dict(base, id="a", capabilities=["pick"], capacity=1, mode="changeover", target_capabilities=["pack"], mode_since=0.0),
+        dict(base, id="b", capabilities=["pick"], capacity=1, mode="normal", target_capabilities=None, mode_since=None),
+        dict(base, id="k", capabilities=["pack"], capacity=1, mode="normal", target_capabilities=None, mode_since=None),
+    )
+    tasks = tuple({"id": f"t{i}", "capability": "pack", "status": "READY", "order": None, "step": 1,
+                   "predecessors": [], "created_at": 0.0, "created_index": i, "ready_at": 0.0,
+                   "started_at": None, "assigned_entity": None} for i in range(6))
+    p = pressures(Observation("s", 10.0, 1, cells, (), tasks, 0, 0))
+    assert p["pack"] == pytest.approx(3.0)  # 6 / (k 1 + 전환 중인 a 1)

@@ -25,10 +25,15 @@ def pressures(obs: Observation) -> dict[str, float]:
             ready[t["capability"]] = ready.get(t["capability"], 0) + 1
     cap: dict[str, int] = {}
     for c in obs.cells:
+        usable = max(c["capacity"] - c["out_of_service"], 0)
         if c.get("mode", "normal") == "normal":
-            usable = max(c["capacity"] - c["out_of_service"], 0)
-            for k in c["capabilities"]:
-                cap[k] = cap.get(k, 0) + usable
+            caps = c["capabilities"]
+        else:
+            # 이미 전환 중인 셀은 곧 제공될 목표 역할의 용량으로 센다 (같은 방향으로 여러 셀을 한꺼번에
+            # 돌리는 과잉 반응 방지 — 코드 리뷰 지적. 재구성 셀이 하나인 M4 에서는 결과가 같다)
+            caps = c.get("target_capabilities") or []
+        for k in caps:
+            cap[k] = cap.get(k, 0) + usable
     keys = set(ready) | set(cap)
     return {k: ready.get(k, 0) / max(cap.get(k, 0), 1) for k in keys}
 
