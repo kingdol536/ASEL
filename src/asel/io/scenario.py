@@ -64,13 +64,37 @@ class PoissonArrival(_Strict):
     rate_per_min: PositiveFloat
 
 
+class RateSegment(_Strict):
+    start_s: float = Field(ge=0)
+    rate_per_min: float = Field(ge=0)  # 0 이면 그 구간에는 도착 없음
+
+
+class PiecewisePoissonArrival(_Strict):
+    """구간별로 도착률이 다른 포아송 과정 (수요 급증 등)."""
+
+    type: Literal["piecewise_poisson"]
+    segments: list[RateSegment] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _ordered(self):
+        starts = [s.start_s for s in self.segments]
+        if starts[0] != 0:
+            raise ValueError("first segment must start at 0")
+        if any(b <= a for a, b in zip(starts, starts[1:])):
+            raise ValueError("segment starts must be strictly increasing")
+        return self
+
+
+ArrivalProcess = Annotated[PoissonArrival | PiecewisePoissonArrival, Field(discriminator="type")]
+
+
 class JobStep(_Strict):
     capability: str = Field(min_length=1)
     service_time: Distribution
 
 
 class Workload(_Strict):
-    arrival_process: PoissonArrival
+    arrival_process: ArrivalProcess
     job_template: list[JobStep] = Field(min_length=1)  # 앞 단계가 다음 단계의 선행 작업
     max_arrivals: int | None = Field(default=None, ge=0)
 
