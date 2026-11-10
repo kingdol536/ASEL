@@ -132,9 +132,7 @@ def run_batch(
     policies = policies or ["fifo"]
     if len(set(policies)) != len(policies):
         raise ValueError("duplicate policies")
-    if "claude" in policies and jobs > 1:
-        # 예산 장부는 한 프로세스의 순차 실행을 전제로 한다 (동시 갱신 시 상한을 넘을 수 있음)
-        raise ValueError("the claude policy must run with jobs=1 (shared budget ledger)")
+    # claude 정책도 병렬 가능: 예산 장부는 잠금 안에서 예약·정산하고, 응답 캐시는 먼저 기록한 응답이 이긴다 (#19)
     resolved = [str(Path(p).resolve()) for p in scenario_paths]
     if len(set(resolved)) != len(resolved):
         raise ValueError("duplicate scenario paths")

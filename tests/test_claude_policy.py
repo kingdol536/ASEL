@@ -244,3 +244,59 @@ def test_manifest_records_policy_usage(tmp_path):
     m = json.loads((write_run(res, tmp_path / "runs") / "manifest.json").read_text(encoding="utf-8"))
     assert m["policy"]["name"] == "claude" and m["policy"]["usage"]["model"] == "claude-haiku-5-5"
     assert m["policy"]["usage"]["api_key_env"] == API_KEY_ENV
+
+
+# ---- 병렬 실행 (#19) -------------------------------------------------------------
+
+_WORKER = r"""
+import sys
+from pathlib import Path
+from asel.agents.claude_policy import BudgetGuard
+g = BudgetGuard(Path(sys.argv[1]), usd_cap=1.0)
+ok = 0
+for _ in range(60):
+    if g.reserve(0.01)[0]:
+        g.settle(0.01, 0.01)
+        ok += 1
+print(ok)
+"""
+
+
+def test_ledger_cap_holds_across_processes(tmp_path):
+    """4개 프로세스가 동시에 예약해도 상한($1 = 0.01 x 100회)을 넘지 않는다 (Windows 포함)."""
+    import subprocess
+    import sys
+
+    ledger = tmp_path / "ledger.json"
+    procs = [subprocess.Popen([sys.executable, "-c", _WORKER, str(ledger)], stdout=subprocess.PIPE, text=True)
+             for _ in range(4)]
+    granted = sum(int(p.communicate(timeout=120)[0].strip()) for p in procs)
+    s = json.loads(ledger.read_text())
+    assert granted == 100  # 정확히 상한만큼만 승인
+    assert s["usd_spent"] == pytest.approx(1.0) and s["usd_reserved"] == pytest.approx(0.0)
+
+
+def test_cache_first_writer_wins(tmp_path):
+    c = ResponseCache(tmp_path / "c")
+    first, mine1 = c.put_if_absent("ab" * 32, {"v": 1})
+    second, mine2 = c.put_if_absent("ab" * 32, {"v": 2})
+    assert mine1 and not mine2 and first == second == {"v": 1} == c.get("ab" * 32)
+    assert not list((tmp_path / "c").rglob("*.tmp"))
+
+
+def test_race_loser_uses_stored_response_and_replay_matches(tmp_path):
+    """다른 프로세스가 같은 요청을 먼저 기록한 상황을 흉내: 늦게 온 쪽은 저장된 응답을 쓰고, 재생과 일치한다."""
+    cache = ResponseCache(tmp_path / "cache")
+    # 1) 먼저 기록한 프로세스: '첫 후보' 응답
+    a = run_scenario(SHORT, seed=4, policy=_policy(tmp_path, FakeClient(), cache=cache))
+
+    # 2) 늦게 온 프로세스: 캐시 조회 시점엔 없었다고 보고 API 를 불렀지만(다른 응답), 기록할 땐 이미 있음
+    class Racer(ResponseCache):
+        def get(self, key):
+            return None
+
+    late = _policy(tmp_path, FakeClient(text_override='{"assignments": [], "reason": "late"}'),
+                   cache=Racer(tmp_path / "cache"))
+    b = run_scenario(SHORT, seed=4, policy=late)
+    assert b.policy_usage.get("cache_race_lost", 0) == b.policy_usage["api_calls"] > 0
+    assert encode_events(a.events) == encode_events(b.events)  # 저장된(먼저 온) 응답대로 행동

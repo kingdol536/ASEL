@@ -217,10 +217,26 @@ class ResponseCache:
         p = self._path(key)
         return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
 
-    def put(self, key: str, entry: dict) -> None:
+    def put_if_absent(self, key: str, entry: dict) -> tuple[dict, bool]:
+        """먼저 기록된 응답이 이긴다. 반환: (캐시에 남은 응답, 내가 기록했는지).
+
+        임시 파일을 다 쓴 뒤 하드 링크로 최종 이름을 만든다. 링크는 대상이 있으면 실패하므로
+        두 프로세스가 같은 요청을 동시에 기록해도 하나만 남고, 읽는 쪽은 항상 완성된 파일을 본다.
+        늦게 온 쪽은 저장된 응답을 그대로 써야 재생 때 같은 사건 로그가 나온다."""
         p = self._path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(entry, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
+        tmp.write_text(json.dumps(entry, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        try:
+            os.link(tmp, p)
+            return entry, True
+        except FileExistsError:
+            return json.loads(p.read_text(encoding="utf-8")), False
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def put(self, key: str, entry: dict) -> None:
+        self.put_if_absent(key, entry)
 
 
 # --------------------------------------------------------------------------- 정책
@@ -298,7 +314,10 @@ class ClaudePolicy:
             entry, reason = self._call(request, user)
             if entry is None:
                 return self._fall_back(reason, obs, affordances)
-            self.cache.put(key, entry)
+            entry, mine = self.cache.put_if_absent(key, entry)
+            if not mine:
+                # 다른 프로세스가 같은 요청의 응답을 먼저 기록했다 → 그 응답을 쓴다 (재생 일치)
+                self._u["cache_race_lost"] = self._u.get("cache_race_lost", 0) + 1
 
         self._served_models.add(str(entry.get("model")))
         if entry.get("stop_reason") not in ("end_turn", "stop_sequence"):
