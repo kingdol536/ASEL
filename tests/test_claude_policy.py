@@ -114,12 +114,14 @@ def test_prompt_contains_no_hidden_truth(tmp_path):
 
 def test_budget_guard_stops_calls_and_never_exceeds_cap(tmp_path):
     fake = FakeClient()
-    cap = 0.0012  # 가짜 사용량 기준 몇 번만 호출 가능한 상한
+    cap = 0.005  # 최악 비용 예약(약 $0.003) 기준으로 몇 번만 호출 가능한 상한
     res = run_scenario(SHORT, seed=5, policy=_policy(tmp_path, fake, usd_cap=cap))
     u = res.policy_usage
     ledger = json.loads((tmp_path / "ledger.json").read_text())
     assert u["fallbacks"].get("budget_usd_cap", 0) > 0
-    assert ledger["usd_spent"] <= cap and ledger["calls"] == u["api_calls"] == len(fake.requests)
+    assert 0 < len(fake.requests) == u["api_calls"]
+    assert ledger["usd_spent"] <= cap and ledger["usd_reserved"] == 0
+    assert ledger["calls"] == 2 * len(fake.requests)  # 요청당 시도 수 = max_retries(1) + 1
     # 장부는 실행을 넘어 누적된다: 같은 장부로 다시 돌리면 더 호출하지 않는다
     fake2 = FakeClient()
     run_scenario(SHORT, seed=6, policy=_policy(tmp_path, fake2, usd_cap=cap))
@@ -128,8 +130,65 @@ def test_budget_guard_stops_calls_and_never_exceeds_cap(tmp_path):
 
 def test_call_cap(tmp_path):
     fake = FakeClient()
-    res = run_scenario(SHORT, seed=5, policy=_policy(tmp_path, fake, call_cap=3))
+    # 상한은 SDK 재시도까지 포함한 '시도 수'다: 요청당 2회 → 상한 6 이면 요청 3번
+    res = run_scenario(SHORT, seed=5, policy=_policy(tmp_path, fake, call_cap=6))
     assert len(fake.requests) == 3 and res.policy_usage["fallbacks"].get("budget_call_cap", 0) > 0
+
+
+class FlakyClient(FakeClient):
+    """세 번째 요청마다 타임아웃."""
+
+    def create(self, **req):
+        if (len(self.requests) + 1) % 3 == 0:
+            self.requests.append(req)
+            raise anthropic.APITimeoutError(request=httpx2.Request("POST", "https://api.invalid"))
+        return super().create(**req)
+
+
+def test_replay_identical_even_when_record_run_had_failures(tmp_path):
+    """녹화 중 실패(대체 결정)가 있었어도 재생 사건 로그가 바이트 동일하다 (리뷰 지적 #1)."""
+    a = run_scenario(SHORT, seed=11, policy=_policy(tmp_path, FlakyClient()))
+    assert a.policy_usage["fallbacks"].get("api_timeout", 0) > 0
+    b = run_scenario(SHORT, seed=11, policy=_policy(tmp_path, FakeClient(raise_exc=AssertionError()), mode="replay"))
+    assert b.policy_usage["fallbacks"].get("cache_miss", 0) == a.policy_usage["fallbacks"]["api_timeout"]
+    assert encode_events(a.events) == encode_events(b.events)
+
+
+def test_timeout_is_charged_conservatively(tmp_path):
+    pol = _policy(tmp_path, FlakyClient())
+    res = run_scenario(SHORT, seed=11, policy=pol)
+    u = res.policy_usage
+    ledger = json.loads((tmp_path / "ledger.json").read_text())
+    # 타임아웃은 예약한 최악 비용 전부가 지출로 남는다 → 장부 지출 = 실제 사용량 추정 + 불명 비용
+    assert u["usd_charged_unknown"] > 0
+    assert ledger["usd_spent"] == pytest.approx(u["usd_estimate"] + u["usd_charged_unknown"], rel=1e-6)
+
+
+def test_usage_resets_per_run_when_policy_object_is_reused(tmp_path):
+    pol = _policy(tmp_path, FakeClient())
+    a = run_scenario(SHORT, seed=1, policy=pol).policy_usage
+    b = run_scenario(SHORT, seed=1, policy=pol).policy_usage  # 같은 객체, 두 번째는 캐시 적중
+    assert b["api_calls"] == 0 and b["cache_hits"] == a["api_calls"] and b["decisions"] == a["decisions"]
+    assert a["served_models"] == b["served_models"] == ["claude-haiku-5-5"]
+
+
+def test_cache_tag_separates_recordings(tmp_path):
+    run_scenario(SHORT, seed=1, policy=_policy(tmp_path, FakeClient()))
+    pol = _policy(tmp_path, FakeClient(raise_exc=AssertionError()), mode="replay")
+    pol.cache_tag = "v2"
+    u = run_scenario(SHORT, seed=1, policy=pol).policy_usage
+    assert u["cache_hits"] == 0 and u["fallbacks"].get("cache_miss", 0) > 0
+
+
+def test_ledger_lock_serializes_reservations(tmp_path):
+    """두 장부 객체(=두 프로세스 흉내)가 같은 파일에 예약해도 상한을 넘지 않는다."""
+    g1 = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
+    g2 = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
+    assert g1.reserve(0.6)[0] is True
+    assert g2.reserve(0.6) == (False, "usd_cap")  # 첫 예약이 장부에 반영되어 있다
+    g1.settle(0.6, 0.1)
+    assert g2.reserve(0.6)[0] is True
+    assert not (tmp_path / "l.lock").exists()
 
 
 @pytest.mark.parametrize(

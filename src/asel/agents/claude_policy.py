@@ -119,39 +119,88 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int,
 # --------------------------------------------------------------------------- 예산 장부
 
 
+class _FileLock:
+    """여러 프로세스가 같은 장부를 쓸 때의 배타 잠금 (O_EXCL 잠금 파일, 오래된 잠금은 정리)."""
+
+    def __init__(self, path: Path, timeout_s: float = 30.0, stale_s: float = 120.0):
+        self.path, self.timeout_s, self.stale_s = path, timeout_s, stale_s
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.timeout_s
+        while True:
+            try:
+                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.close(fd)
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.path.stat().st_mtime > self.stale_s:
+                        self.path.unlink(missing_ok=True)
+                        continue
+                except FileNotFoundError:
+                    continue
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"budget ledger lock busy: {self.path}")
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        self.path.unlink(missing_ok=True)
+
+
 @dataclass
 class BudgetGuard:
-    """누적 비용 장부. 여러 실행·배치에 걸쳐 같은 파일을 쓴다 (프로세스 하나에서 순차 실행 전제)."""
+    """누적 비용 장부. 여러 실행·배치·프로세스에 걸쳐 같은 파일을 쓴다.
+
+    호출 전에 최악 비용을 '예약'하고(상한 검사와 예약을 잠금 안에서 한 번에), 호출 뒤 실제 비용으로
+    '정산'한다. 실제 비용을 알 수 없는 실패(타임아웃 등)는 예약액 전부를 지출로 남긴다(보수적).
+    calls 는 성공 여부와 관계없이 API 요청 시도 수다."""
 
     ledger_path: Path
     usd_cap: float
     call_cap: int | None = None
 
+    def _lock(self) -> _FileLock:
+        return _FileLock(self.ledger_path.with_suffix(".lock"))
+
     def _load(self) -> dict:
         if self.ledger_path.exists():
-            return json.loads(self.ledger_path.read_text(encoding="utf-8"))
-        return {"usd_spent": 0.0, "calls": 0, "entries": 0}
+            s = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+            s.setdefault("usd_reserved", 0.0)
+            return s
+        return {"usd_spent": 0.0, "usd_reserved": 0.0, "calls": 0, "entries": 0}
 
-    def state(self) -> dict:
-        return self._load()
-
-    def can_spend(self, usd_worst_case: float) -> tuple[bool, str]:
-        s = self._load()
-        if self.call_cap is not None and s["calls"] >= self.call_cap:
-            return False, "call_cap"
-        if s["usd_spent"] + usd_worst_case > self.usd_cap:
-            return False, "usd_cap"
-        return True, ""
-
-    def record(self, usd: float) -> None:
-        s = self._load()
-        s["usd_spent"] = round(s["usd_spent"] + usd, 8)
-        s["calls"] += 1
-        s["entries"] += 1
+    def _save(self, s: dict) -> None:
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.ledger_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(s, indent=2), encoding="utf-8")
         tmp.replace(self.ledger_path)
+
+    def state(self) -> dict:
+        return self._load()
+
+    def reserve(self, usd_worst_case: float, attempts: int = 1) -> tuple[bool, str]:
+        with self._lock():
+            s = self._load()
+            if self.call_cap is not None and s["calls"] + attempts > self.call_cap:
+                return False, "call_cap"
+            if s["usd_spent"] + s["usd_reserved"] + usd_worst_case > self.usd_cap:
+                return False, "usd_cap"
+            s["usd_reserved"] = round(s["usd_reserved"] + usd_worst_case, 8)
+            s["calls"] += attempts
+            self._save(s)
+            return True, ""
+
+    def settle(self, reserved: float, actual: float | None) -> float:
+        """actual=None 이면 실제 비용을 모르므로 예약액 전부를 지출로 기록한다. 기록한 금액을 돌려준다."""
+        charged = reserved if actual is None else actual
+        with self._lock():
+            s = self._load()
+            s["usd_reserved"] = max(0.0, round(s["usd_reserved"] - reserved, 8))
+            s["usd_spent"] = round(s["usd_spent"] + charged, 8)
+            s["entries"] += 1
+            self._save(s)
+        return charged
 
 
 # --------------------------------------------------------------------------- 응답 캐시
@@ -183,6 +232,9 @@ class ClaudePolicy:
     mode: str = "replay"  # replay | record
     effort: str = "low"
     max_tokens: int = 2048
+    timeout_s: float = 30.0
+    max_retries: int = 1  # SDK 자동 재시도. 예산 예약은 (max_retries + 1) 회 시도분으로 잡는다
+    cache_tag: str = "v1"  # 녹화 묶음 이름. 다시 녹화할 때 바꾸면 이전 응답과 섞이지 않는다
     client: object | None = None  # 테스트에서는 가짜 클라이언트를 넣는다
     cache: ResponseCache | None = None
     guard: BudgetGuard | None = None
@@ -198,22 +250,30 @@ class ClaudePolicy:
         llm_dir = default_llm_dir()
         self.cache = self.cache or ResponseCache(llm_dir / "cache")
         self.guard = self.guard or BudgetGuard(llm_dir / "ledger.json", usd_cap=55.0)
+        self._reset_usage()
+
+    def _reset_usage(self) -> None:
+        self._served_models: set[str] = set()
         self._u = {
             "model": self.model, "mode": self.mode, "effort": self.effort, "max_tokens": self.max_tokens,
             "prices_as_of": PRICES_AS_OF, "api_calls": 0, "cache_hits": 0, "llm_decisions": 0,
             "fallbacks": {}, "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
-            "cache_creation_input_tokens": 0, "usd_estimate": 0.0, "latency_ms_total": 0.0,
-            "api_key_env": API_KEY_ENV,
+            "cache_creation_input_tokens": 0, "usd_estimate": 0.0, "usd_charged_unknown": 0.0,
+            "latency_ms_total": 0.0, "api_key_env": API_KEY_ENV, "cache_tag": self.cache_tag,
         }
 
     # -- 규약 --------------------------------------------------------------------
     def reset(self, context: PolicyContext) -> None:
+        """실행마다 호출된다. 사용량은 실행 단위로 다시 센다 (같은 객체를 여러 실행에 써도 섞이지 않게)."""
+        self._reset_usage()
         self._fallback.reset(context)
 
     def usage(self) -> dict:
         u = dict(self._u)
         u["fallbacks"] = dict(sorted(self._u["fallbacks"].items()))
         u["usd_estimate"] = round(u["usd_estimate"], 6)
+        u["usd_charged_unknown"] = round(u["usd_charged_unknown"], 6)
+        u["served_models"] = sorted(self._served_models)  # 캐시 응답 포함, 실제로 응답한 모델 버전
         u["latency_ms_total"] = round(u["latency_ms_total"], 1)
         return u
 
@@ -226,7 +286,8 @@ class ClaudePolicy:
             "messages": [{"role": "user", "content": user}],
             "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         }
-        key = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        key_src = {"cache_tag": self.cache_tag, "request": request}
+        key = hashlib.sha256(json.dumps(key_src, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
         entry = self.cache.get(key)
         if entry is not None:
@@ -239,6 +300,7 @@ class ClaudePolicy:
                 return self._fall_back(reason, obs, affordances)
             self.cache.put(key, entry)
 
+        self._served_models.add(str(entry.get("model")))
         if entry.get("stop_reason") not in ("end_turn", "stop_sequence"):
             return self._fall_back(f"stop_{entry.get('stop_reason')}", obs, affordances)
         try:
@@ -261,34 +323,47 @@ class ClaudePolicy:
         return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
     def _fall_back(self, reason: str, obs, affordances) -> list[ActionProposal]:
+        # 공개 로그의 이유는 'fallback' 하나로 둔다. 자세한 사유(타임아웃·예산·캐시 없음 등)는 사용량에만.
+        # 녹화 실행의 실패와 재생 실행의 캐시 없음이 같은 사건 로그를 내도록 하기 위함이다.
         self._u["fallbacks"][reason] = self._u["fallbacks"].get(reason, 0) + 1
-        return [
-            ActionProposal(p.action_type, p.params, f"fallback:{reason}")
-            for p in self._fallback.decide(obs, affordances)
-        ]
+        return [ActionProposal(p.action_type, p.params, "fallback") for p in self._fallback.decide(obs, affordances)]
 
     def _call(self, request: dict, user: str) -> tuple[dict | None, str]:
         # 최악 비용: 입력은 문자 수/2 토큰으로 넉넉히 추정(실제보다 크게), 출력은 max_tokens 전부
         est_in = (len(SYSTEM_PROMPT) + len(user)) // 2 + 500
-        ok, why = self.guard.can_spend(estimate_cost_usd(self.model, est_in, self.max_tokens))
+        attempts = self.max_retries + 1
+        worst = estimate_cost_usd(self.model, est_in, self.max_tokens) * attempts
+        ok, why = self.guard.reserve(worst, attempts=attempts)
         if not ok:
             return None, f"budget_{why}"
         if self.client is None:
-            self.client = make_client()
+            self.client = make_client(self.timeout_s, self.max_retries)
 
         import anthropic
+
+        def unknown_cost(reason: str):
+            # 서버에서 처리됐는지 알 수 없다 → 예약한 최악 비용 전부를 지출로 남긴다 (보수적)
+            self._u["usd_charged_unknown"] += self.guard.settle(worst, None)
+            return None, reason
 
         t0 = time.perf_counter()
         try:
             resp = self.client.messages.create(**request)
         except anthropic.APITimeoutError:
-            return None, "api_timeout"
+            return unknown_cost("api_timeout")
         except anthropic.RateLimitError:
+            self.guard.settle(worst, 0.0)  # 429 는 처리되지 않은 요청
             return None, "api_rate_limit"
         except anthropic.APIStatusError as e:
+            if e.status_code >= 500:
+                return unknown_cost(f"api_status_{e.status_code}")
+            self.guard.settle(worst, 0.0)  # 4xx: 처리 전 거절
             return None, f"api_status_{e.status_code}"
         except anthropic.APIConnectionError:
-            return None, "api_connection"
+            return unknown_cost("api_connection")
+        except BaseException:
+            unknown_cost("unexpected")
+            raise
         latency_ms = (time.perf_counter() - t0) * 1000
 
         u = resp.usage
@@ -296,7 +371,7 @@ class ClaudePolicy:
         cr = getattr(u, "cache_read_input_tokens", 0) or 0
         cw = getattr(u, "cache_creation_input_tokens", 0) or 0
         usd = estimate_cost_usd(self.model, inp, out, cr, cw)
-        self.guard.record(usd)
+        self.guard.settle(worst, usd)
         self._u["api_calls"] += 1
         self._u["input_tokens"] += inp
         self._u["output_tokens"] += out
