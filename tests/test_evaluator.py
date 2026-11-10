@@ -99,3 +99,11 @@ def test_cli_run_writes_evaluation(tmp_path):
 
     assert main(["run", str(SURGE), "--seed", "1", "--out", str(tmp_path)]) == 0
     assert list(tmp_path.glob("*/*/evaluation.json"))
+
+
+def test_reevaluate_batch_reproduces_eval_csv(tmp_path):
+    from asel.batch import reevaluate_batch
+
+    bd = run_batch([str(SURGE)], [0, 1], tmp_path, policies=["fifo", "order-age"])
+    before = (bd / "batch_eval.csv").read_text(encoding="utf-8")
+    assert reevaluate_batch(bd).read_text(encoding="utf-8") == before

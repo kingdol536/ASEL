@@ -127,6 +127,10 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("run_dir")
     e.set_defaults(func=_cmd_evaluate)
 
+    rb = sub.add_parser("reevaluate", help="re-run the current evaluator over an existing batch")
+    rb.add_argument("batch_dir")
+    rb.set_defaults(func=lambda a: print(__import__("asel.batch", fromlist=["x"]).reevaluate_batch(Path(a.batch_dir))) or 0)
+
     cp = sub.add_parser("compare", help="paired policy comparison over a batch (bootstrap 95% CI)")
     cp.add_argument("batch_dir")
     cp.add_argument("--a", required=True, help="baseline policy name")

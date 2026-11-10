@@ -104,6 +104,22 @@ def summary_csv(rows: list[dict], columns: list[str] = COLUMNS) -> str:
     return buf.getvalue()
 
 
+def reevaluate_batch(batch_dir: Path) -> Path:
+    """기존 배치의 실행들을 현재 평가기로 다시 평가해 batch_eval.csv 를 새로 쓴다 (시뮬레이션은 다시 하지 않음).
+    행 순서는 batch_summary.csv 를 따른다."""
+    with open(batch_dir / "batch_summary.csv", encoding="utf-8") as f:
+        order = [(r["scenario_id"], r["run_id"]) for r in csv.DictReader(f)]
+    rows = []
+    for scenario_id, run_id in order:
+        matches = sorted((batch_dir / "runs" / scenario_id).glob(f"{run_id}__*"))
+        if len(matches) != 1:
+            raise ValueError(f"expected one run dir for {run_id}, found {len(matches)}")
+        rows.append(eval_row(write_evaluation(matches[0])))
+    out = batch_dir / "batch_eval.csv"
+    out.write_text(summary_csv(rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
+    return out
+
+
 def run_batch(
     scenario_paths: list[str],
     seeds: list[int],
