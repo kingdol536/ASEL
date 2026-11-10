@@ -22,7 +22,8 @@ from asel.runner import run_scenario, write_run
 
 def _cmd_run(args: argparse.Namespace) -> int:
     sc = load_scenario(args.scenario)
-    res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants, policy=args.policy)
+    res = run_scenario(sc, seed=args.seed, check_invariants=not args.no_invariants, policy=args.policy,
+                       structure_policy=args.structure)
     run_dir = write_run(res, Path(args.out))
     from asel.evaluation.evaluator import write_evaluation
 
@@ -64,6 +65,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         Path(args.out),
         jobs=args.jobs,
         policies=[p.strip() for p in args.policies.split(",") if p.strip()],
+        structure_policies=[s.strip() for s in args.structures.split(",") if s.strip()] or None,
     )
     info = json.loads((d / "batch.json").read_text(encoding="utf-8"))
     print(f"batch_dir: {d}")
@@ -92,7 +94,7 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 
     rows = load_eval_rows(Path(args.batch_dir))
     for metric in args.metrics.split(","):
-        for r in paired_compare(rows, metric.strip(), args.a, args.b):
+        for r in paired_compare(rows, metric.strip(), args.a, args.b, column=args.column):
             print(json.dumps(r, ensure_ascii=False))
     return 0
 
@@ -107,6 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--out", default="experiments/runs")
     r.add_argument("--no-invariants", action="store_true", help="skip per-step invariant checks")
     r.add_argument("--policy", default="fifo", help="registered policy name (fifo, order-age, ...)")
+    r.add_argument("--structure", default=None, help="structure policy (p0, p1, p2); omit for none")
     r.set_defaults(func=_cmd_run)
 
     c = sub.add_parser("replay-check", help="rebuild state from events.ndjson and compare")
@@ -136,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     cp.add_argument("--a", required=True, help="baseline policy name")
     cp.add_argument("--b", required=True, help="treatment policy name")
     cp.add_argument("--metrics", default="flow_mean_s,flow_p95_s,completion_rate,backlog_end")
+    cp.add_argument("--column", default="policy", help="'policy' or 'structure'")
     cp.set_defaults(func=_cmd_compare)
 
     b = sub.add_parser("batch", help="run scenarios x seeds headless")
@@ -144,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--out", default="experiments/batches")
     b.add_argument("--jobs", type=int, default=1, help="parallel worker processes")
     b.add_argument("--policies", default="fifo", help="comma-separated policy names, e.g. fifo,order-age")
+    b.add_argument("--structures", default="", help="comma-separated structure policies, e.g. p0,p1,p2")
     b.set_defaults(func=_cmd_batch)
 
     args = ap.parse_args(argv)

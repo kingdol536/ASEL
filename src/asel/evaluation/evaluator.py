@@ -147,6 +147,7 @@ def evaluate_run(run_dir: Path) -> dict:
         "scenario_id": manifest.get("scenario_id"),
         "seed": manifest.get("seed"),
         "policy": policy.get("name"),
+        "structure_policy": (manifest.get("structure_policy") or {}).get("name"),
         "events_sha256": manifest.get("events_sha256"),
         "orders": order_metrics(public),
         "decisions": decision_metrics(public, policy.get("actor_id")),
@@ -178,7 +179,7 @@ def write_evaluation(run_dir: Path) -> dict:
 
 
 EVAL_COLUMNS = [
-    "scenario_id", "policy", "seed", "orders_arrived", "orders_completed", "completion_rate",
+    "scenario_id", "policy", "structure", "seed", "orders_arrived", "orders_completed", "completion_rate",
     "flow_mean_s", "flow_median_s", "flow_p95_s", "censored_n", "backlog_end",
     "proposals", "invalid_proposal_rate", "fallback_proposals", "policy_decisions", "fallback_rate",
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
@@ -188,7 +189,8 @@ EVAL_COLUMNS = [
 def eval_row(ev: dict) -> dict:
     o, d, c = ev["orders"], ev["decisions"], ev["decision_cost"]
     return {
-        "scenario_id": ev["scenario_id"], "policy": ev["policy"], "seed": ev["seed"],
+        "scenario_id": ev["scenario_id"], "policy": ev["policy"], "structure": ev.get("structure_policy") or "",
+        "seed": ev["seed"],
         "orders_arrived": o["orders_arrived"], "orders_completed": o["orders_completed"],
         "completion_rate": o["completion_rate"],
         "flow_mean_s": o["order_flow_time_s"]["mean"], "flow_median_s": o["order_flow_time_s"]["median"],

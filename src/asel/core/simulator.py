@@ -51,12 +51,14 @@ class Simulator:
         self,
         world: World,
         source: WorkloadSource,
-        dispatcher: Dispatcher,
+        dispatcher: Dispatcher | list[Dispatcher],
         check_invariants: bool = True,
     ):
+        """dispatcher: 결정 주체 하나 또는 목록. 목록이면 순서대로 호출하고, 각 주체의 행동을 바로
+        적용한 뒤 다음 주체를 부른다 (예: 구조 제어 → 배정)."""
         self.world = world
         self.source = source
-        self.dispatcher = dispatcher
+        self.dispatchers = dispatcher if isinstance(dispatcher, list) else [dispatcher]
         self.check = check_invariants
         self._queue: list[_Item] = []
         self._seq = 0
@@ -84,8 +86,9 @@ class Simulator:
                 raise InvariantViolation(f"t={self.world.state.sim_time}: " + "; ".join(v))
 
     def _dispatch(self) -> None:
-        for action in self.dispatcher.propose(self.world.state):
-            self._submit(action)
+        for d in self.dispatchers:
+            for action in d.propose(self.world.state):
+                self._submit(action)
         self._check()
 
     def run(self, until: float) -> None:

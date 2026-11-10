@@ -26,6 +26,7 @@ from asel.runner import REPO_ROOT, run_scenario, write_run_detailed
 COLUMNS = [
     "scenario_id",
     "policy",
+    "structure",
     "seed",
     "run_id",
     "events",
@@ -66,19 +67,20 @@ def parse_seeds(spec: str) -> list[int]:
     return out
 
 
-def _one(args: tuple[str, int, str, bool, dict, str]) -> tuple[dict, float, int, dict]:
-    scenario_path, seed, runs_root, check, code, policy = args
+def _one(args: tuple) -> tuple[dict, float, int, dict]:
+    scenario_path, seed, runs_root, check, code, policy, structure, extra = args
     sc = load_scenario(scenario_path)
     t0 = time.perf_counter()
-    res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy)
+    res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy, structure_policy=structure)
     sim_s = time.perf_counter() - t0
-    run_dir, m = write_run_detailed(res, Path(runs_root), code=code)
+    run_dir, m = write_run_detailed(res, Path(runs_root), code=code, extra=extra)
     ev = write_evaluation(run_dir)  # 실행이 끝난 뒤 평가 (정책은 평가 결과를 보지 않는다)
     s = m["summary"]
     by = s["tasks_by_status"]
     row = {
         "scenario_id": sc.scenario_id,
         "policy": res.policy_name,
+        "structure": res.structure_name or "",
         "seed": seed,
         "run_id": res.run_id,
         "events": s["events"],
@@ -127,10 +129,13 @@ def run_batch(
     jobs: int = 1,
     check_invariants: bool = True,
     policies: list[str] | None = None,
+    structure_policies: list[str | None] | None = None,
+    extra_manifest: dict | None = None,
 ) -> Path:
     """policies: 등록된 정책 이름 목록. 정책마다 같은 시나리오·시드로 실행한다 (대응 비교)."""
     policies = policies or ["fifo"]
-    if len(set(policies)) != len(policies):
+    structure_policies = structure_policies or [None]
+    if len(set(policies)) != len(policies) or len(set(structure_policies)) != len(structure_policies):
         raise ValueError("duplicate policies")
     # claude 정책도 병렬 가능: 예산 장부는 잠금 안에서 예약·정산하고, 응답 캐시는 먼저 기록한 응답이 이긴다 (#19)
     resolved = [str(Path(p).resolve()) for p in scenario_paths]
@@ -149,9 +154,10 @@ def run_batch(
 
     code = code_revision(REPO_ROOT)  # 배치 동안 코드는 바뀌지 않는다
     tasks = [
-        (str(p), seed, str(runs_root), check_invariants, code, pol)
+        (str(p), seed, str(runs_root), check_invariants, code, pol, spol, extra_manifest)
         for p in scenario_paths
         for pol in policies
+        for spol in structure_policies
         for seed in seeds
     ]
 
@@ -179,6 +185,8 @@ def run_batch(
         ],
         "seeds": seeds,
         "policies": policies,
+        "structure_policies": structure_policies,
+        "extra": extra_manifest,
         "n_runs": len(rows),
         "jobs": jobs,
         "check_invariants": check_invariants,
