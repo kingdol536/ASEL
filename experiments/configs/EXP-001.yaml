@@ -1,0 +1,38 @@
+# EXP-001 — 기계용 설정 (초안). 설명·근거는 experiments/plans/EXP-001.md
+# 상태가 approved 가 되기 전에는 평가기·실제 API 호출에 사용하지 않는다.
+experiment_id: EXP-001
+status: approved         # draft -> approved -> running -> reported  (2026-11-11 사용자 승인)
+question: >-
+  같은 부분 관측·행동 계약 아래에서 Claude 정책이 세계를 안전하게 운영할 수 있는가,
+  그리고 결과·비용이 FIFO·규칙 기준선과 어떤 조건에서 어떻게 다른가
+hypotheses: [H1-safety-boundary, H2-invalid-rate-by-scenario, H3-outcome-diff-only-under-surge, H4-cost-within-cap]
+scenario_family: warehouse_A
+scenarios: [warehouse-small-a, warehouse-surge-a, warehouse-fault-a]
+heldout_scenarios: [warehouse-fault-b]   # 평가 직전 생성, 개발 중 사용 금지
+controlled_variables: [observation_projection, decision_points, workload_per_seed]
+independent_variables: [policy, scenario]
+policies: [P-FIFO, P-RULE, P-CLAUDE-H]   # P-CLAUDE-S 는 파일럿 후 결정
+baselines: [P-FIFO, P-RULE]
+seeds:
+  development: "0-9"
+  evaluation: "100-129"      # 임시 30개. 파일럿 분산으로 재산정
+outcomes:                    # 후보. 승인 시 확정
+  - invalid_proposal_rate
+  - order_flow_time_s        # 미완료 주문은 중도절단, 완료율과 함께
+  - order_flow_time_p95_s
+  - orders_completed
+  - backlog_end
+  - decision_cost            # calls, input/output tokens, latency_ms, usd
+  - fallback_rate
+budget:
+  usd_cap_total: 55          # 상한(목표 아님). 2026-11-19 만료
+  pilot_runs: 6
+  call_cap_per_run: null     # 파일럿 후 결정
+termination_rules:
+  - budget_guard_triggered
+  - pilot_invalid_rate_over_0.5
+analysis_plan: >-
+  시드별 정책 간 대응 차이, 부트스트랩 95% CI(10,000회, 고정 시드), 분포·최악 사례 공개,
+  지표 합산 점수 없음, 사후 변경은 탐색적 분석으로 표시
+model_versions: {}           # 실행 시 기록
+code_revision: ""            # 실행 시 기록
