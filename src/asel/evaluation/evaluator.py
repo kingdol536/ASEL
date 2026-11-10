@@ -19,9 +19,10 @@ from pathlib import Path
 from asel.core.invariants import check_invariants
 from asel.core.world import replay
 from asel.core.events import Event
+from asel.evaluation.bottleneck import structure_metrics
 from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.2"  # 0.2: 무효 제안 비율에서 대체 제안 분리
+EVALUATOR_VERSION = "eval-0.3"  # 0.2: 무효 제안 비율에서 대체 제안 분리 / 0.3: 병목·재구성 지표
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 
@@ -152,6 +153,7 @@ def evaluate_run(run_dir: Path) -> dict:
         "orders": order_metrics(public),
         "decisions": decision_metrics(public, policy.get("actor_id")),
         "backlog_end": backlog_end,
+        "structure": structure_metrics(public),
         "decision_cost": {
             k: usage.get(k)
             for k in ("model", "api_calls", "cache_hits", "input_tokens", "output_tokens",
@@ -183,6 +185,8 @@ EVAL_COLUMNS = [
     "flow_mean_s", "flow_median_s", "flow_p95_s", "censored_n", "backlog_end",
     "proposals", "invalid_proposal_rate", "fallback_proposals", "policy_decisions", "fallback_rate",
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
+    "reconf_completed", "draining_s_total", "changeover_s_total", "lost_capacity_s",
+    "bottleneck_shifts", "bottleneck_seq",
 ]
 
 
@@ -202,4 +206,10 @@ def eval_row(ev: dict) -> dict:
         "input_tokens": c.get("input_tokens", 0), "output_tokens": c.get("output_tokens", 0),
         "usd_estimate": c.get("usd_estimate", 0.0), "latency_ms_total": c.get("latency_ms_total", 0.0),
         "boundary_ok": ev["safety_boundary"]["ok"],
+        "reconf_completed": ev["structure"]["reconfig_completed"],
+        "draining_s_total": ev["structure"]["draining_s_total"],
+        "changeover_s_total": ev["structure"]["changeover_s_total"],
+        "lost_capacity_s": ev["structure"]["lost_capacity_s"],
+        "bottleneck_shifts": ev["structure"]["bottleneck_shifts"],
+        "bottleneck_seq": "".join(x[:2] if x != "-" else "-" for x in ev["structure"]["bottleneck_by_window"]),
     }
