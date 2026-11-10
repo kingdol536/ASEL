@@ -19,3 +19,4 @@ experiments/batches/
 # 편집기
 .vscode/
 .idea/
+.claude/launch.json

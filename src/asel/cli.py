@@ -3,6 +3,7 @@
     asel run scenarios/warehouse-small-a.yaml [--seed 7] [--out experiments/runs]
     asel replay-check experiments/runs/<scenario>/<run_dir>
     asel compare-logs <run_dir_a> <run_dir_b>
+    asel view <run_dir> [--out view.html]
     asel batch scenarios/a.yaml scenarios/b.yaml --seeds 0-29 [--jobs 4]
 """
 
@@ -61,6 +62,14 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return 0 if info["invariant_violations_total"] == 0 else 1
 
 
+def _cmd_view(args: argparse.Namespace) -> int:
+    from asel.viewer2d import render_run
+
+    out = render_run(Path(args.run_dir), Path(args.out) if args.out else None)
+    print(f"view: {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="asel")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -80,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("a")
     m.add_argument("b")
     m.set_defaults(func=_cmd_compare_logs)
+
+    v = sub.add_parser("view", help="render a 2D HTML replay from the public log")
+    v.add_argument("run_dir")
+    v.add_argument("--out", default=None)
+    v.set_defaults(func=_cmd_view)
 
     b = sub.add_parser("batch", help="run scenarios x seeds headless")
     b.add_argument("scenarios", nargs="+")
