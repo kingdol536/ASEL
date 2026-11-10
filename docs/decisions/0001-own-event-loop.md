@@ -36,6 +36,20 @@ M1의 목표는 작업·자원 상태가 어긋나지 않고, 같은 시드로 �
 - 이벤트 로그만으로 최종 상태 재구성 (`asel replay-check`)
 - CI에서 Windows/Ubuntu 양쪽의 `events_sha256`을 출력해 플랫폼 간 일치 여부를 관측
 
+## 측정 결과 (2026-11-11, 실측)
+
+환경 A(`warehouse-small-a`), seed 42, 커밋 `00cef47`:
+
+| 실행 환경 | Python | `events_sha256` |
+|---|---|---|
+| 로컬 Windows 11 (Ryzen 5 7600) | 3.13.5 | `7a97f808…a431fc` |
+| GitHub Actions windows-latest | uv 관리 3.13 | `7a97f808…a431fc` |
+| GitHub Actions ubuntu-latest | uv 관리 3.13 | `7a97f808…a431fc` |
+
+`asel compare-logs` 판정: **바이트 동일**, 최대 상대 차이 0.0 (CI run 42870119840).
+범위: 이 시나리오·시드 한 건이며, 다른 Python 버전·CPU 아키텍처(ARM 등)는 미검증이다.
+CI가 매 푸시마다 같은 비교를 반복한다.
+
 ## 재검토 조건
 
 - 선점·복잡한 자원 정책이 필요해져 직접 구현 비용이 커질 때
