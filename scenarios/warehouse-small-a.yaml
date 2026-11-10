@@ -1,0 +1,33 @@
+# 환경 A (잠정) — 모듈형 물류 작업 셀
+# 모든 수치는 기능 검증용 가상 값이다. 실제 설비 자료나 성능 목표가 아니다.
+#
+# 대략적인 부하(가상): 주문 1.5건/분
+#   pick: 평균 60s x 1.5/분 = 1.5 셀 분량 / pick 가능 셀 3개 -> 이용률 약 50%
+#   pack: 평균 30s x 1.5/분 = 0.75 셀 분량 / pack 가능 셀 1개 -> 이용률 약 75% (예상 병목)
+# cell-flex-1 은 M4 에서 역할 전환(pick <-> pack) 실험 대상이다. M1 에서는 pick 고정.
+schema_version: "0.1"
+scenario_id: warehouse-small-a
+domain: warehouse_like
+seed: 42
+sim_time_limit: 3600
+entities:
+  - {id: cell-pick-1, type: workstation, capabilities: [pick], capacity: 1}
+  - {id: cell-pick-2, type: workstation, capabilities: [pick], capacity: 1}
+  - {id: cell-flex-1, type: workstation, capabilities: [pick], capacity: 1}
+  - {id: cell-pack-1, type: workstation, capabilities: [pack], capacity: 1}
+relations:
+  - {source: cell-pick-1, target: cell-pack-1, kind: material_flow}
+  - {source: cell-pick-2, target: cell-pack-1, kind: material_flow}
+  - {source: cell-flex-1, target: cell-pack-1, kind: material_flow}
+workload:
+  arrival_process: {type: poisson, rate_per_min: 1.5}
+  job_template:
+    - capability: pick
+      service_time: {type: exponential, mean_s: 60}
+    - capability: pack
+      service_time: {type: uniform, low_s: 20, high_s: 40}
+constraints:
+  - {id: nonnegative-capacity, kind: invariant}
+  - {id: precedence, kind: invariant}
+objectives:
+  - {id: meet-order-deadline, kind: provisional}
