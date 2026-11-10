@@ -131,36 +131,58 @@ def _retry_os(fn, tries: int = 100, delay_s: float = 0.02):
 
 
 class _FileLock:
-    """여러 프로세스가 같은 장부를 쓸 때의 배타 잠금 (O_EXCL 잠금 파일, 오래된 잠금은 정리).
+    """OS 파일 잠금(Windows msvcrt.locking / POSIX fcntl.flock)으로 여러 프로세스의 갱신을 직렬화한다.
 
-    Windows 에서는 다른 프로세스가 지우는 중인 잠금 파일(delete-pending)을 만들려 하면
-    FileExistsError 가 아니라 PermissionError 가 난다 → 둘 다 '잠금 사용 중'으로 보고 기다린다.
-    (EXP-001 본 실험 6병렬 실행 중 실제로 발생해 배치가 중단된 결함, 2026-11-11)"""
+    잠금 파일은 지우지 않는다. 잠금을 쥔 프로세스가 죽으면 OS 가 잠금을 풀어 주므로 '오래된 잠금'
+    정리가 필요 없고, Windows 의 지우는 중(delete-pending) 상태도 생기지 않는다.
+    (이전 O_EXCL 잠금 파일 방식은 EXP-001 본 실험 중 PermissionError 로 배치를 멈췄고, 코드 리뷰에서
+    '오래된 잠금 정리 경쟁'과 '죽은 프로세스의 잠금이 대기 시간보다 오래 남음' 결함이 지적됐다.)"""
 
-    def __init__(self, path: Path, timeout_s: float = 60.0, stale_s: float = 120.0):
-        self.path, self.timeout_s, self.stale_s = path, timeout_s, stale_s
+    def __init__(self, path: Path, timeout_s: float = 60.0):
+        self.path, self.timeout_s = path, timeout_s
+        self._f = None
+
+    def _try_lock(self) -> None:
+        if sys.platform == "win32":
+            import msvcrt
+
+            self._f.seek(0)
+            msvcrt.locking(self._f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(self._f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._f = _retry_os(lambda: open(self.path, "a+b"))
         deadline = time.monotonic() + self.timeout_s
         while True:
             try:
-                fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.close(fd)
+                self._try_lock()
                 return self
-            except (FileExistsError, PermissionError):
-                try:
-                    if time.time() - self.path.stat().st_mtime > self.stale_s:
-                        self.path.unlink(missing_ok=True)
-                        continue
-                except OSError:
-                    pass  # 그 사이 지워졌거나 지우는 중
+            except OSError:
                 if time.monotonic() > deadline:
-                    raise TimeoutError(f"budget ledger lock busy: {self.path}")
-                time.sleep(0.02)
+                    self._f.close()
+                    raise TimeoutError(f"lock busy: {self.path}") from None
+                time.sleep(0.01)
 
     def __exit__(self, *exc):
-        _retry_os(lambda: self.path.unlink(missing_ok=True))
+        try:
+            if sys.platform == "win32":
+                import msvcrt
+
+                self._f.seek(0)
+                msvcrt.locking(self._f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(self._f.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._f.close()
+
+
+RESERVATION_TTL_S = 600.0  # 호출 제한시간 x 시도 수보다 충분히 길게. 이보다 오래된 예약은 죽은 프로세스의 것으로 본다
 
 
 @dataclass
@@ -169,6 +191,8 @@ class BudgetGuard:
 
     호출 전에 최악 비용을 '예약'하고(상한 검사와 예약을 잠금 안에서 한 번에), 호출 뒤 실제 비용으로
     '정산'한다. 실제 비용을 알 수 없는 실패(타임아웃 등)는 예약액 전부를 지출로 남긴다(보수적).
+    예약은 id·시각·프로세스와 함께 기록한다. 정산되지 않은 채 RESERVATION_TTL_S 가 지난 예약
+    (프로세스가 죽은 경우)은 청구됐을 수 있으므로 지출로 옮긴다 — 예산이 조용히 묶이지 않게.
     calls 는 성공 여부와 관계없이 API 요청 시도 수다."""
 
     ledger_path: Path
@@ -181,38 +205,65 @@ class BudgetGuard:
     def _load(self) -> dict:
         if self.ledger_path.exists():
             s = json.loads(_retry_os(lambda: self.ledger_path.read_text(encoding="utf-8")))
-            s.setdefault("usd_reserved", 0.0)
-            return s
-        return {"usd_spent": 0.0, "usd_reserved": 0.0, "calls": 0, "entries": 0}
+        else:
+            s = {"usd_spent": 0.0, "calls": 0, "entries": 0}
+        s.setdefault("pending", {})
+        s.setdefault("expired_reservations", 0)
+        # 이전 형식(usd_reserved 합계만 있던 장부)의 잔여 예약은 보수적으로 지출로 옮긴다
+        legacy = s.pop("usd_reserved", 0.0) - sum(p["usd"] for p in s["pending"].values())
+        if legacy > 1e-12:
+            s["usd_spent"] = round(s["usd_spent"] + legacy, 8)
+        return s
 
     def _save(self, s: dict) -> None:
+        s["usd_reserved"] = round(sum(p["usd"] for p in s["pending"].values()), 8)
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.ledger_path.with_name(f"{self.ledger_path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(s, indent=2), encoding="utf-8")
         _retry_os(lambda: tmp.replace(self.ledger_path))
 
+    def _expire(self, s: dict, now: float) -> None:
+        for rid in [r for r, p in s["pending"].items() if now - p["t"] > RESERVATION_TTL_S]:
+            s["usd_spent"] = round(s["usd_spent"] + s["pending"].pop(rid)["usd"], 8)
+            s["expired_reservations"] += 1
+
     def state(self) -> dict:
-        return self._load()
+        s = self._load()
+        s["usd_reserved"] = round(sum(p["usd"] for p in s["pending"].values()), 8)
+        return s
 
     def reserve(self, usd_worst_case: float, attempts: int = 1) -> tuple[bool, str]:
+        """성공하면 (True, 예약 id), 실패하면 (False, 사유)."""
         with self._lock():
             s = self._load()
+            now = time.time()
+            self._expire(s, now)
+            reserved = sum(p["usd"] for p in s["pending"].values())
             if self.call_cap is not None and s["calls"] + attempts > self.call_cap:
+                self._save(s)
                 return False, "call_cap"
-            if s["usd_spent"] + s["usd_reserved"] + usd_worst_case > self.usd_cap:
+            if s["usd_spent"] + reserved + usd_worst_case > self.usd_cap:
+                self._save(s)
                 return False, "usd_cap"
-            s["usd_reserved"] = round(s["usd_reserved"] + usd_worst_case, 8)
+            rid = f"{os.getpid()}-{time.monotonic_ns()}"
+            s["pending"][rid] = {"usd": round(usd_worst_case, 8), "t": now, "pid": os.getpid()}
             s["calls"] += attempts
             self._save(s)
-            return True, ""
+            return True, rid
 
-    def settle(self, reserved: float, actual: float | None) -> float:
+    def settle(self, rid: str, actual: float | None) -> float:
         """actual=None 이면 실제 비용을 모르므로 예약액 전부를 지출로 기록한다. 기록한 금액을 돌려준다."""
-        charged = reserved if actual is None else actual
         with self._lock():
             s = self._load()
-            s["usd_reserved"] = max(0.0, round(s["usd_reserved"] - reserved, 8))
-            s["usd_spent"] = round(s["usd_spent"] + charged, 8)
+            self._expire(s, time.time())
+            p = s["pending"].pop(rid, None)
+            if p is not None:
+                charged = p["usd"] if actual is None else actual
+                s["usd_spent"] = round(s["usd_spent"] + charged, 8)
+            else:
+                # 이미 만료되어 예약액(최악 비용) 전부가 지출로 옮겨졌다 → 장부는 그대로 둔다 (보수적, 이중 계산 방지)
+                charged = 0.0 if actual is None else actual
+                s["late_settlements"] = s.get("late_settlements", 0) + 1
             s["entries"] += 1
             self._save(s)
         return charged
@@ -230,25 +281,23 @@ class ResponseCache:
 
     def get(self, key: str) -> dict | None:
         p = self._path(key)
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+        return json.loads(_retry_os(lambda: p.read_text(encoding="utf-8"))) if p.exists() else None
 
     def put_if_absent(self, key: str, entry: dict) -> tuple[dict, bool]:
         """먼저 기록된 응답이 이긴다. 반환: (캐시에 남은 응답, 내가 기록했는지).
 
-        임시 파일을 다 쓴 뒤 하드 링크로 최종 이름을 만든다. 링크는 대상이 있으면 실패하므로
-        두 프로세스가 같은 요청을 동시에 기록해도 하나만 남고, 읽는 쪽은 항상 완성된 파일을 본다.
+        캐시 전체에 대한 OS 잠금 안에서 '있으면 읽고, 없으면 임시 파일을 쓴 뒤 원자적으로 교체'한다.
+        하드 링크를 쓰지 않으므로 파일 시스템 종류와 무관하고, 읽는 쪽은 항상 완성된 파일을 본다.
         늦게 온 쪽은 저장된 응답을 그대로 써야 재생 때 같은 사건 로그가 나온다."""
         p = self._path(key)
         p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_name(f"{p.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
-        tmp.write_text(json.dumps(entry, ensure_ascii=False, sort_keys=True), encoding="utf-8")
-        try:
-            os.link(tmp, p)
+        with _FileLock(self.root / ".cache.lock"):
+            if p.exists():
+                return json.loads(_retry_os(lambda: p.read_text(encoding="utf-8"))), False
+            tmp = p.with_name(f"{p.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(entry, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            _retry_os(lambda: os.replace(tmp, p))
             return entry, True
-        except FileExistsError:
-            return json.loads(p.read_text(encoding="utf-8")), False
-        finally:
-            tmp.unlink(missing_ok=True)
 
     def put(self, key: str, entry: dict) -> None:
         self.put_if_absent(key, entry)
@@ -367,9 +416,9 @@ class ClaudePolicy:
         est_in = (len(SYSTEM_PROMPT) + len(user)) // 2 + 500
         attempts = self.max_retries + 1
         worst = estimate_cost_usd(self.model, est_in, self.max_tokens) * attempts
-        ok, why = self.guard.reserve(worst, attempts=attempts)
+        ok, rid = self.guard.reserve(worst, attempts=attempts)
         if not ok:
-            return None, f"budget_{why}"
+            return None, f"budget_{rid}"
         if self.client is None:
             self.client = make_client(self.timeout_s, self.max_retries)
 
@@ -377,7 +426,7 @@ class ClaudePolicy:
 
         def unknown_cost(reason: str):
             # 서버에서 처리됐는지 알 수 없다 → 예약한 최악 비용 전부를 지출로 남긴다 (보수적)
-            self._u["usd_charged_unknown"] += self.guard.settle(worst, None)
+            self._u["usd_charged_unknown"] += self.guard.settle(rid, None)
             return None, reason
 
         t0 = time.perf_counter()
@@ -386,12 +435,12 @@ class ClaudePolicy:
         except anthropic.APITimeoutError:
             return unknown_cost("api_timeout")
         except anthropic.RateLimitError:
-            self.guard.settle(worst, 0.0)  # 429 는 처리되지 않은 요청
+            self.guard.settle(rid, 0.0)  # 429 는 처리되지 않은 요청
             return None, "api_rate_limit"
         except anthropic.APIStatusError as e:
             if e.status_code >= 500:
                 return unknown_cost(f"api_status_{e.status_code}")
-            self.guard.settle(worst, 0.0)  # 4xx: 처리 전 거절
+            self.guard.settle(rid, 0.0)  # 4xx: 처리 전 거절
             return None, f"api_status_{e.status_code}"
         except anthropic.APIConnectionError:
             return unknown_cost("api_connection")
@@ -405,7 +454,7 @@ class ClaudePolicy:
         cr = getattr(u, "cache_read_input_tokens", 0) or 0
         cw = getattr(u, "cache_creation_input_tokens", 0) or 0
         usd = estimate_cost_usd(self.model, inp, out, cr, cw)
-        self.guard.settle(worst, usd)
+        self.guard.settle(rid, usd)
         self._u["api_calls"] += 1
         self._u["input_tokens"] += inp
         self._u["output_tokens"] += out

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import time
 from types import SimpleNamespace
 
 import anthropic
@@ -184,11 +185,11 @@ def test_ledger_lock_serializes_reservations(tmp_path):
     """두 장부 객체(=두 프로세스 흉내)가 같은 파일에 예약해도 상한을 넘지 않는다."""
     g1 = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
     g2 = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
-    assert g1.reserve(0.6)[0] is True
+    ok1, rid1 = g1.reserve(0.6)
+    assert ok1 is True
     assert g2.reserve(0.6) == (False, "usd_cap")  # 첫 예약이 장부에 반영되어 있다
-    g1.settle(0.6, 0.1)
+    g1.settle(rid1, 0.1)
     assert g2.reserve(0.6)[0] is True
-    assert not (tmp_path / "l.lock").exists()
 
 
 @pytest.mark.parametrize(
@@ -255,8 +256,9 @@ from asel.agents.claude_policy import BudgetGuard
 g = BudgetGuard(Path(sys.argv[1]), usd_cap=1.0)
 ok = 0
 for _ in range(60):
-    if g.reserve(0.01)[0]:
-        g.settle(0.01, 0.01)
+    good, rid = g.reserve(0.01)
+    if good:
+        g.settle(rid, 0.01)
         ok += 1
 print(ok)
 """
@@ -302,23 +304,58 @@ def test_race_loser_uses_stored_response_and_replay_matches(tmp_path):
     assert encode_events(a.events) == encode_events(b.events)  # 저장된(먼저 온) 응답대로 행동
 
 
-def test_lock_treats_windows_delete_pending_as_busy(tmp_path, monkeypatch):
-    """Windows 에서 지우는 중인 잠금 파일은 PermissionError 를 낸다 → 기다렸다가 다시 잡아야 한다 (실제 발생 결함)."""
-    import os as _os
+_HOLD_AND_DIE = r"""
+import os, sys, time
+from pathlib import Path
+from asel.agents.claude_policy import _FileLock
+lk = _FileLock(Path(sys.argv[1]))
+lk.__enter__()
+print("held", flush=True)
+time.sleep(1.0)
+os._exit(1)  # 잠금을 풀지 않고 죽는다
+"""
 
+
+def test_lock_released_when_holder_process_dies(tmp_path):
+    """잠금을 쥔 프로세스가 죽으면 OS 가 잠금을 푼다 → 다른 프로세스가 오래 기다리지 않는다 (리뷰 지적)."""
+    import subprocess
+    import sys
+
+    from asel.agents.claude_policy import _FileLock
+
+    lock = tmp_path / "x.lock"
+    p = subprocess.Popen([sys.executable, "-c", _HOLD_AND_DIE, str(lock)], stdout=subprocess.PIPE, text=True)
+    assert p.stdout.readline().strip() == "held"
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError):
+        with _FileLock(lock, timeout_s=0.3):
+            pass  # 살아 있는 동안은 못 잡는다
+    p.wait(timeout=30)
+    with _FileLock(lock, timeout_s=5.0):
+        pass  # 죽은 뒤에는 바로 잡힌다
+    assert time.monotonic() - t0 < 10
+
+
+def test_expired_reservation_counts_as_spent_and_late_settle_corrects(tmp_path, monkeypatch):
     from asel.agents import claude_policy as cp
 
-    real_open, calls = _os.open, {"n": 0}
-
-    def flaky_open(path, flags, *a):
-        calls["n"] += 1
-        if calls["n"] <= 3:
-            raise PermissionError(13, "Permission denied", str(path))
-        return real_open(path, flags, *a)
-
-    monkeypatch.setattr(cp.os, "open", flaky_open)
     g = BudgetGuard(tmp_path / "l.json", usd_cap=1.0)
-    assert g.reserve(0.1)[0] is True and calls["n"] == 4
+    ok, rid = g.reserve(0.3)
+    assert ok and g.state()["usd_reserved"] == pytest.approx(0.3)
+    real_time = cp.time.time
+    monkeypatch.setattr(cp.time, "time", lambda: real_time() + cp.RESERVATION_TTL_S + 1)
+    assert g.reserve(0.01)[0]  # 이 시점에 만료 처리: 0.3 이 지출로
+    s = g.state()
+    assert s["expired_reservations"] == 1 and s["usd_spent"] == pytest.approx(0.3)
+    g.settle(rid, 0.05)  # 늦게 도착한 정산: 차액 보정 대신 실제 비용을 더하지 않도록 0.05 만 기록
+    assert g.state()["late_settlements"] == 1
+
+
+def test_legacy_ledger_reserved_is_moved_to_spent(tmp_path):
+    p = tmp_path / "l.json"
+    p.write_text(json.dumps({"usd_spent": 1.0, "usd_reserved": 0.2, "calls": 4, "entries": 2}))
+    s = BudgetGuard(p, usd_cap=10).state()
+    assert s["usd_spent"] == pytest.approx(1.2) and s["usd_reserved"] == 0
 
 
 _HEAVY_WORKER = r"""
@@ -327,8 +364,9 @@ from pathlib import Path
 from asel.agents.claude_policy import BudgetGuard
 g = BudgetGuard(Path(sys.argv[1]), usd_cap=1000.0)
 for _ in range(300):
-    if g.reserve(0.001)[0]:
-        g.settle(0.001, 0.001)
+    good, rid = g.reserve(0.001)
+    if good:
+        g.settle(rid, 0.001)
 print("ok")
 """
 
