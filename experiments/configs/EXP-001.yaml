@@ -11,7 +11,7 @@ scenarios: [warehouse-small-a, warehouse-surge-a, warehouse-fault-a]
 heldout_scenarios: [warehouse-fault-b]   # 평가 직전 생성, 개발 중 사용 금지
 controlled_variables: [observation_projection, decision_points, workload_per_seed]
 independent_variables: [policy, scenario]
-policies: [P-FIFO, P-RULE, P-CLAUDE-H]   # P-CLAUDE-S 는 파일럿 후 결정
+policies: [P-FIFO, P-RULE, P-CLAUDE-H]   # P-CLAUDE-S: 파일럿 후 규칙 적용 결과 미추가
 baselines: [P-FIFO, P-RULE]
 seeds:
   development: "0-9"
