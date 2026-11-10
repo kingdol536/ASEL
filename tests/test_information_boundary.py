@@ -71,3 +71,30 @@ def test_rejected_env_action_keeps_private_out_of_public_log():
     w.submit(create("a", duration=98.7654321))  # 중복 id -> 거절
     text = encode_public(w.log).decode()
     assert "12.345678" not in text and "98.7654321" not in text
+
+
+def test_rejection_reasons_do_not_reveal_duration():
+    """조기 완료 요청이 거절돼도 사유 문자열에 예정 완료 시각(=처리 시간)이 나오지 않는다."""
+    from conftest import complete, start
+
+    w = make_world()
+    w.submit(create("a", duration=37.123456))
+    w.submit(start("a", "pick-1"))
+    w.advance_to(5.0)
+    res = w.submit(complete("a"))
+    assert not res.accepted
+    text = encode_public(w.log).decode()
+    assert "37.123456" not in text and "42.123456" not in text  # 처리 시간, 시작+처리 시간
+
+
+def test_duplicate_private_seq_detected(scenario_a, tmp_path):
+    import pytest
+
+    from asel.io.eventlog import read_run
+
+    run_dir = write_run(run_scenario(scenario_a, seed=1), tmp_path)
+    priv = run_dir / PRIVATE_LOG
+    first = priv.read_text(encoding="utf-8").splitlines()[0]
+    priv.write_text(priv.read_text(encoding="utf-8") + first + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate"):
+        read_run(run_dir)

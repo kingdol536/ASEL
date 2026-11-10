@@ -20,7 +20,7 @@ from pathlib import Path
 
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import load_scenario
-from asel.runner import REPO_ROOT, run_scenario, write_run
+from asel.runner import REPO_ROOT, run_scenario, write_run_detailed
 
 COLUMNS = [
     "scenario_id",
@@ -64,14 +64,13 @@ def parse_seeds(spec: str) -> list[int]:
     return out
 
 
-def _one(args: tuple[str, int, str, bool]) -> tuple[dict, float, int]:
-    scenario_path, seed, runs_root, check = args
+def _one(args: tuple[str, int, str, bool, dict]) -> tuple[dict, float, int]:
+    scenario_path, seed, runs_root, check, code = args
     sc = load_scenario(scenario_path)
     t0 = time.perf_counter()
     res = run_scenario(sc, seed=seed, check_invariants=check)
     sim_s = time.perf_counter() - t0
-    run_dir = write_run(res, Path(runs_root))
-    m = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    _, m = write_run_detailed(res, Path(runs_root), code=code)
     s = m["summary"]
     by = s["tasks_by_status"]
     row = {
@@ -108,14 +107,22 @@ def run_batch(
     jobs: int = 1,
     check_invariants: bool = True,
 ) -> Path:
+    resolved = [str(Path(p).resolve()) for p in scenario_paths]
+    if len(set(resolved)) != len(resolved):
+        raise ValueError("duplicate scenario paths")
+    scenarios = [load_scenario(p) for p in scenario_paths]
+    ids = [(sc.scenario_id, sc.config_hash()) for sc in scenarios]
+    if len(set(ids)) != len(ids):
+        raise ValueError("two scenario files have the same scenario_id and config (run ids would collide)")
+
     started = datetime.now(UTC)
     batch_id = "batch__" + started.strftime("%Y%m%dT%H%M%S%fZ")
     batch_dir = out_root / batch_id
     runs_root = batch_dir / "runs"
     runs_root.mkdir(parents=True, exist_ok=False)
 
-    scenarios = [load_scenario(p) for p in scenario_paths]
-    tasks = [(str(p), seed, str(runs_root), check_invariants) for p in scenario_paths for seed in seeds]
+    code = code_revision(REPO_ROOT)  # 배치 동안 코드는 바뀌지 않는다
+    tasks = [(str(p), seed, str(runs_root), check_invariants, code) for p in scenario_paths for seed in seeds]
 
     t0 = time.perf_counter()
     if jobs <= 1:
@@ -149,7 +156,7 @@ def run_batch(
             "note": "wall_s 는 로그·manifest 쓰기와 git 조회를 포함한다. simulate_s_sum 은 시뮬레이션만.",
         },
         "invariant_violations_total": sum(r["invariant_violations"] for r in rows),
-        "code": code_revision(REPO_ROOT),
+        "code": code,
         "environment": environment_info(),
     }
     (batch_dir / "batch.json").write_text(

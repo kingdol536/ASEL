@@ -84,9 +84,13 @@ class WarehouseWorkload:
 
     def initial_schedule(self) -> list[tuple[float, tuple]]:
         sched: list[tuple[float, tuple]] = list(self._next_arrival(0.0))
+        # 같은 시각이면 종료를 시작보다 먼저 예약한다 (시나리오 검증의 겹침 판정과 같은 규칙).
+        # 시뮬레이터는 같은 시각 사건을 예약 순서대로 처리한다.
+        fault_events = []
         for i, f in enumerate(self.sc.faults):
-            sched.append((f.start_s, ("fault_start", i)))
-            sched.append((f.end_s, ("fault_end", i)))
+            fault_events.append((f.start_s, 1, i, ("fault_start", i)))
+            fault_events.append((f.end_s, 0, i, ("fault_end", i)))
+        sched += [(t, data) for t, _, _, data in sorted(fault_events)]
         return sched
 
     def _fault_action(self, kind: str, i: int) -> Action:

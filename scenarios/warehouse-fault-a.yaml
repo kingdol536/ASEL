@@ -5,7 +5,7 @@
 #   pick: 평균 60s x 1.5/분 = 1.5 셀 분량 / pick 가능 셀 3개 -> 이용률 약 50%
 #   pack: 평균 30s x 1.5/분 = 0.75 셀 분량 / pack 가능 셀 1개 -> 이용률 약 75% (예상 병목)
 # cell-flex-1 은 M4 에서 역할 전환(pick <-> pack) 실험 대상이다. M1 에서는 pick 고정.
-schema_version: "0.1"
+schema_version: "0.2"
 scenario_id: warehouse-fault-a
 domain: warehouse_like
 seed: 42

@@ -250,6 +250,8 @@ class World:
     # -- 검증 ------------------------------------------------------------
 
     def validate(self, action: Action) -> list[str]:
+        """거절 사유 목록. 사유는 ActionRejected 의 공개 payload 로 기록되므로
+        숨겨진 참값(처리 시간, 고장 원인 등)을 사유 문자열에 넣지 않는다."""
         r: list[str] = []
         if action.kind not in KNOWN_ACTION_KINDS:
             return [f"unknown action kind: {action.kind!r}"]
@@ -345,9 +347,9 @@ class World:
             return [f"complete_task: unknown task {p.get('task')!r}"]
         if task.status != TaskStatus.RUNNING:
             return [f"complete_task: task {task.id} is {task.status}, not RUNNING"]
-        due = task.started_at + task.duration
-        if self.state.sim_time < due:
-            return [f"complete_task: task {task.id} not finished (now {self.state.sim_time}, due {due})"]
+        if self.state.sim_time < task.started_at + task.duration:
+            # 사유 문자열은 공개 로그로 간다. 예정 완료 시각(= 처리 시간)을 넣으면 숨겨진 참값이 샌다.
+            return [f"complete_task: task {task.id} not finished yet"]
         return []
 
     # -- 효과 계산 (상태 변경 없음) ---------------------------------------

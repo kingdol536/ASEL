@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 
 import pytest
@@ -33,5 +35,13 @@ def test_batch_summary_is_deterministic_and_parallel_safe(tmp_path):
     assert info["throughput"]["runs_per_min"] > 0
     assert len(list((a / "runs").glob("*/*/manifest.json"))) == 6
     # 고장 시나리오 행에는 고장이 2건 기록된다
-    fault_rows = [l for l in csv_a.splitlines() if l.startswith("warehouse-fault-a,")]
-    assert fault_rows and all(",2,0," in l for l in fault_rows)  # outages_started=2, violations=0
+    rows = list(csv.DictReader(io.StringIO(csv_a)))
+    fault_rows = [r for r in rows if r["scenario_id"] == "warehouse-fault-a"]
+    assert len(fault_rows) == 3
+    assert all(r["outages_started"] == "2" and r["invariant_violations"] == "0" for r in fault_rows)
+    assert all(r["outages_started"] == "0" for r in rows if r["scenario_id"] == "warehouse-small-a")
+
+
+def test_batch_rejects_duplicate_scenarios(tmp_path):
+    with pytest.raises(ValueError):
+        run_batch([SCENARIOS[0], SCENARIOS[0]], [0], tmp_path)

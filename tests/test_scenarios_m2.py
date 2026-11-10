@@ -171,3 +171,28 @@ def test_back_to_back_faults_allowed(fault):
             ],
         )
     )
+
+
+def test_back_to_back_faults_listed_in_reverse_order_both_apply(fault):
+    """같은 셀의 연속 고장이 역순으로 적혀 있어도 둘 다 적용된다 (리뷰 지적 #2)."""
+    sc = Scenario.model_validate(
+        _fault_doc(
+            fault,
+            [
+                {"entity": "cell-pack-1", "start_s": 1000, "end_s": 1100, "cause": "second"},
+                {"entity": "cell-pack-1", "start_s": 900, "end_s": 1000, "cause": "first"},
+            ],
+        )
+    )
+    res = run_scenario(sc, seed=0)
+    kinds = [e.event_type for e in res.events]
+    assert kinds.count("ResourceOutageStarted") == 2
+    assert kinds.count("ResourceOutageEnded") == 2
+    assert res.summary()["actions_rejected"] == 0
+
+
+def test_v01_scenario_cannot_use_v02_features(fault):
+    d = fault.model_dump(mode="json")
+    d["schema_version"] = "0.1"
+    with pytest.raises(ValidationError):
+        Scenario.model_validate(d)

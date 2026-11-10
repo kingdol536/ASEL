@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
-SCENARIO_SCHEMA_VERSION = "0.1"
+SCENARIO_SCHEMA_VERSION = "0.2"  # 0.2: faults, piecewise_poisson 추가
 
 
 class _Strict(BaseModel):
@@ -128,7 +128,7 @@ class ObjectiveSpec(BaseModel):
 
 
 class Scenario(_Strict):
-    schema_version: Literal["0.1"]
+    schema_version: Literal["0.1", "0.2"]
     scenario_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     domain: Literal["warehouse_like"]
     seed: int
@@ -140,6 +140,14 @@ class Scenario(_Strict):
     constraints: list[ConstraintSpec] = Field(default_factory=list)
     objectives: list[ObjectiveSpec] = Field(default_factory=list)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _version_features(self):
+        if self.schema_version == "0.1" and (
+            self.faults or isinstance(self.workload.arrival_process, PiecewisePoissonArrival)
+        ):
+            raise ValueError("faults / piecewise_poisson require schema_version '0.2'")
+        return self
 
     @model_validator(mode="after")
     def _references(self):

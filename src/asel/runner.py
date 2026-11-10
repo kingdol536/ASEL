@@ -88,7 +88,13 @@ def run_scenario(sc: Scenario, seed: int | None = None, check_invariants: bool =
     return RunResult(run_id, sc, seed, world, started, finished)
 
 
-def write_run(res: RunResult, out_root: Path) -> Path:
+def write_run(res: RunResult, out_root: Path, code: dict | None = None) -> Path:
+    return write_run_detailed(res, out_root, code)[0]
+
+
+def write_run_detailed(res: RunResult, out_root: Path, code: dict | None = None) -> tuple[Path, dict]:
+    """실행 폴더를 쓰고 (경로, manifest) 를 돌려준다.
+    code: 코드 리비전. 배치처럼 여러 실행을 쓸 때는 한 번만 구해서 넘긴다(git 조회 반복 방지)."""
     stamp = datetime.fromisoformat(res.started_utc).strftime("%Y%m%dT%H%M%SZ")
     run_dir = out_root / res.scenario.scenario_id / f"{res.run_id}__{stamp}"
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -108,7 +114,7 @@ def write_run(res: RunResult, out_root: Path) -> Path:
         "event_schema_version": SCHEMA_VERSION,
         "scenario_schema_version": res.scenario.schema_version,
         **log_hashes,
-        "code": code_revision(REPO_ROOT),
+        "code": code if code is not None else code_revision(REPO_ROOT),
         "environment": environment_info(),
         "policy": {"dispatcher": "dispatcher.fifo", "version": "0.1"},
         "evaluator": None,  # M3 에서 도입
@@ -121,7 +127,7 @@ def write_run(res: RunResult, out_root: Path) -> Path:
         encoding="utf-8",
         newline="\n",
     )
-    return run_dir
+    return run_dir, manifest
 
 
 def check_events_hash(res: RunResult) -> str:

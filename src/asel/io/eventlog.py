@@ -67,7 +67,11 @@ def read_public(path: Path) -> list[Event]:
 
 def read_full(public_path: Path, private_path: Path) -> list[Event]:
     """공개+비공개를 seq 로 합친다 (평가기·재생 검증 전용)."""
-    hidden = {d["seq"]: d["private"] for d in _read_json_lines(private_path)}
+    hidden: dict[int, dict] = {}
+    for d in _read_json_lines(private_path):
+        if d["seq"] in hidden:
+            raise ValueError(f"duplicate private record for seq {d['seq']}")
+        hidden[d["seq"]] = d["private"]
     events = []
     for d in _read_json_lines(public_path):
         events.append(Event.from_dict({**d, "private": hidden.pop(d["seq"], {})}))
