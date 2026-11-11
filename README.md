@@ -99,6 +99,7 @@ ASEL_LLM_DIR=<푼 폴더> uv run python experiments/configs/reproduce.py check -
 | [시뮬레이션·물리](docs/05-SIMULATION-AND-PHYSICS.md) · [수학](docs/06-MATHEMATICAL-FOUNDATIONS.md) | 2D → 3D, 지표의 정의 |
 | [실험 설계](docs/07-EXPERIMENTAL-DESIGN.md) · [로드맵](docs/09-DEVELOPMENT-ROADMAP.md) | 검증 방법, 단계와 통과 조건 |
 | [결정 기록](docs/decisions/README.md) · [용어집](docs/10-GLOSSARY.md) | 기술 선택의 근거와 상태 |
+| [예측 기록](docs/forecasts/README.md) | 해결 전에 고정한 산업 문제 예측 (AI 구조 재편으로 가는 문제 연쇄) |
 | [Claude Code 지침](CLAUDE.md) | AI 코딩 협업 규칙 |
 
 ## 주의
