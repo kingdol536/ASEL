@@ -81,6 +81,20 @@ def _cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_scene3d(args: argparse.Namespace) -> int:
+    from asel.scene3d import dumps, scene_for_run
+
+    try:
+        scene = scene_for_run(Path(args.run_dir), args.layout)
+    except ValueError as e:  # 공간 정보 없음, 배치와 셀 구성 불일치
+        print(f"scene3d: {e}", file=sys.stderr)
+        return 2
+    out = Path(args.out) if args.out else Path(args.run_dir) / "scene3d.json"
+    out.write_text(dumps(scene) + "\n", encoding="utf-8", newline="\n")
+    print(f"scene3d: {out} (cells {len(scene['cells'])}, clashes {len(scene['clashes'])})")
+    return 0
+
+
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     from asel.evaluation.evaluator import write_evaluation
 
@@ -125,6 +139,12 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("run_dir")
     v.add_argument("--out", default=None)
     v.set_defaults(func=_cmd_view)
+
+    s3 = sub.add_parser("scene3d", help="export 3D scene data (layout, cell timeline, ceiling clashes) from the public log")
+    s3.add_argument("run_dir")
+    s3.add_argument("--layout", default=None, help="scenario with a static 3D layout to replay a 2D run on")
+    s3.add_argument("--out", default=None)
+    s3.set_defaults(func=_cmd_scene3d)
 
     e = sub.add_parser("evaluate", help="independent evaluation of a run dir -> evaluation.json")
     e.add_argument("run_dir")
