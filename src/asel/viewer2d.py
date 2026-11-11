@@ -20,7 +20,8 @@ from pathlib import Path
 from asel.core.events import Event
 from asel.io.eventlog import PUBLIC_LOG, read_public
 
-PALETTE = ["#2f6fdf", "#d9772b", "#2a9d6a", "#a855c7", "#c23b52", "#6b7280"]
+PALETTE = ["#2f6fdf", "#d9772b", "#2a9d6a", "#a855c7", "#c23b52", "#6b7280",
+           "#0e9aa7", "#b5892e", "#5b6ee1", "#d1497b"]
 
 
 @dataclass
@@ -44,12 +45,17 @@ class _View:
     ready_series: dict[str, list[tuple[float, int]]] = field(default_factory=dict)
     rejected: list[Event] = field(default_factory=list)
     n_events: int = 0
+    # 공정 흐름(작업 묶음 종류별 첫 인스턴스의 단계 그래프), 목표 변경, 취소된 묶음 (#42)
+    flows: dict[str, dict] = field(default_factory=dict)  # 접두어 -> {"inst", "nodes": {단계: 역할}, "edges": [(a, b)]}
+    objectives: list[tuple[float, dict]] = field(default_factory=list)
+    cancelled: dict[str, set] = field(default_factory=dict)  # 접두어 -> 취소된 인스턴스
 
 
 def build_view(events: list[Event]) -> _View:
     v = _View(n_events=len(events))
     cap_of: dict[str, str] = {}
     running: dict[str, _Bar] = {}
+    inst_of: dict[str, str] = {}
     ready_count: dict[str, int] = {}
     for ev in events:
         v.run_id = ev.run_id
@@ -63,6 +69,15 @@ def build_view(events: list[Event]) -> _View:
                 v.bars[e["id"]] = []
                 v.outages[e["id"]] = []
         elif et == "TaskCreated":
+            inst = p.get("tags", {}).get("order")
+            if inst and "/" in ev.entity_id:
+                prefix = inst.rsplit("-", 1)[0]
+                f = v.flows.setdefault(prefix, {"inst": inst, "nodes": {}, "edges": []})
+                if f["inst"] == inst:  # 종류별 첫 인스턴스로 흐름 모양을 그린다
+                    step = ev.entity_id.split("/", 1)[1]
+                    f["nodes"][step] = p["capability"]
+                    f["edges"] += [(q.split("/", 1)[1], step) for q in p["predecessors"] if "/" in q]
+                inst_of[ev.entity_id] = inst
             cap_of[ev.entity_id] = p["capability"]
             ready_count.setdefault(p["capability"], 0)
             v.ready_series.setdefault(p["capability"], [(0.0, 0)])
@@ -80,6 +95,9 @@ def build_view(events: list[Event]) -> _View:
                 v.bars.setdefault(p["entity"], []).append(bar)
             elif p["to"] == "COMPLETED" and ev.entity_id in running:
                 running.pop(ev.entity_id).end = ev.sim_time
+            elif p["to"] == "CANCELLED" and ev.entity_id in inst_of:
+                inst = inst_of[ev.entity_id]
+                v.cancelled.setdefault(inst.rsplit("-", 1)[0], set()).add(inst)
         elif et == "ResourceOutageStarted":
             v.outages.setdefault(ev.entity_id, []).append([ev.sim_time, None, p["units"]])
         elif et == "ResourceOutageEnded":
@@ -102,6 +120,8 @@ def build_view(events: list[Event]) -> _View:
             segs = v.reconf.get(ev.entity_id, [])
             if segs and segs[-1][2] is None:
                 segs[-1][2] = ev.sim_time
+        elif et == "ObjectiveChanged":
+            v.objectives.append((ev.sim_time, p["objective"]))
         elif et == "ActionRejected":
             v.rejected.append(ev)
     return v
@@ -211,8 +231,47 @@ def _gantt_svg(v: _View, colors: dict[str, str]) -> str:
                 f'class="{cls}" style="fill:{colors.get(b.capability, "#888")}">'
                 f"<title>{_esc(b.task)} · {b.start:.1f}s → {end_txt}</title></rect>"
             )
+    for t_obj, obj in v.objectives:
+        x = _x(t_obj, t_end, label_w, w)
+        out.append(f'<line x1="{x:.1f}" y1="{top - 4}" x2="{x:.1f}" y2="{height - 10}" class="objective">'
+                   f'<title>목표 변경 {t_obj:.0f}s → {_esc(obj.get("id"))} ({_esc(obj.get("kind"))})</title></line>')
     out.append("</svg>")
     return "".join(out)
+
+
+def _flows_svg(v: _View, colors: dict[str, str]) -> str:
+    """작업 묶음 종류별 공정 흐름 (단계 DAG). 깊이(가장 긴 선행 경로)로 열을 나눈다."""
+    if not v.flows:
+        return '<p class="note">공정 흐름 정보 없음</p>'
+    parts = []
+    nw, nh, gx, gy = 110, 30, 46, 10
+    for prefix, f in sorted(v.flows.items()):
+        depth: dict[str, int] = {}
+        for step in f["nodes"]:  # 단계는 선행 단계 뒤에 만들어지므로 순서대로 계산된다
+            preds = [a for a, b in f["edges"] if b == step]
+            depth[step] = 1 + max((depth.get(a, 0) for a in preds), default=-1)
+        cols: dict[int, list[str]] = {}
+        for step, d in depth.items():
+            cols.setdefault(d, []).append(step)
+        ncol, nrow = max(cols) + 1, max(len(x) for x in cols.values())
+        width, height = ncol * (nw + gx) + 10, nrow * (nh + gy) + 10
+        pos = {s: (5 + d * (nw + gx), 5 + r * (nh + gy)) for d, ss in cols.items() for r, s in enumerate(ss)}
+        svg = [f'<svg viewBox="0 0 {width} {height}" class="flow" role="img" aria-label="{_esc(prefix)} 공정 흐름">',
+               '<defs><marker id="farr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" '
+               'orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="edge-head"/></marker></defs>']
+        for a, b in f["edges"]:
+            (ax, ay), (bx, by) = pos[a], pos[b]
+            svg.append(f'<line x1="{ax + nw}" y1="{ay + nh / 2}" x2="{bx - 2}" y2="{by + nh / 2}" class="edge" marker-end="url(#farr)"/>')
+        for step, cap in f["nodes"].items():
+            x, y = pos[step]
+            svg.append(f'<g><rect x="{x}" y="{y}" width="{nw}" height="{nh}" rx="5" class="node" style="stroke:{colors.get(cap, "#888")}"/>'
+                       f'<text x="{x + 8}" y="{y + 13}" class="node-id">{_esc(step)}</text>'
+                       f'<text x="{x + 8}" y="{y + 25}" class="node-cap">{_esc(cap)}</text></g>')
+        svg.append("</svg>")
+        n_cancel = len(v.cancelled.get(prefix, ()))
+        note = f" · 취소된 묶음 {n_cancel}개" if n_cancel else ""
+        parts.append(f'<div class="flow-title">{_esc(prefix)}{note}</div>' + "".join(svg))
+    return "".join(parts)
 
 
 def _ready_svg(v: _View, colors: dict[str, str]) -> str:
@@ -239,6 +298,10 @@ def _ready_svg(v: _View, colors: dict[str, str]) -> str:
             f'<polyline points="{" ".join(pts)}" class="line" style="stroke:{colors.get(cap, "#888")}">'
             f"<title>{_esc(cap)} 대기 작업 수</title></polyline>"
         )
+    for t_obj, obj in v.objectives:
+        x = _x(t_obj, t_end, label_w, w)
+        out.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" y2="{top + h}" class="objective">'
+                   f'<title>목표 변경 {t_obj:.0f}s → {_esc(obj.get("id"))} ({_esc(obj.get("kind"))})</title></line>')
     out.append("</svg>")
     return "".join(out)
 
@@ -256,7 +319,9 @@ svg{display:block;width:100%;height:auto;min-width:640px}.graph{max-width:640px;
 .grid{stroke:var(--line);stroke-width:1}.tick{font-size:10px;fill:var(--muted);text-anchor:middle}
 .row-label{font-size:11px;fill:var(--fg);text-anchor:end}.bar{opacity:.9}.bar.open{opacity:.45}
 .outage{fill:var(--outage)}.draining{fill:var(--draining)}.changeover{fill:var(--changeover)}
-.reconf-label{font-size:9px;fill:var(--muted)}.line{fill:none;stroke-width:1.6}
+.reconf-label{font-size:9px;fill:var(--muted)}
+.objective{stroke:var(--fg);stroke-width:1.2;stroke-dasharray:4 3;opacity:.7}
+.flow{max-width:760px;min-width:0;margin-bottom:8px}.flow-title{font-size:12px;color:var(--muted);margin:6px 0 2px}.line{fill:none;stroke-width:1.6}
 .legend{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 0;font-size:12px;color:var(--muted)}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
 table{border-collapse:collapse;width:100%;font-size:12px}td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
@@ -272,6 +337,9 @@ def render_html(v: _View) -> str:
     if v.reconf:
         legend += ('<span><span class="sw" style="background:var(--draining)"></span>작업 비우는 중</span>'
                    '<span><span class="sw" style="background:var(--changeover)"></span>역할 전환 중</span>')
+    n_cancel = sum(len(x) for x in v.cancelled.values())
+    extra_meta = (f" · 취소된 작업 묶음 {n_cancel}개" if n_cancel else "") + (
+        f" · 목표 변경 {len(v.objectives)}회 (점선)" if v.objectives else "")
     n_tasks = sum(len(b) for b in v.bars.values())
     if v.rejected:
         rows = "".join(
@@ -291,9 +359,10 @@ def render_html(v: _View) -> str:
 <title>ASEL 실행 재생</title><style>{CSS}</style></head>
 <body><main>
 <h1>실행 재생 (2D)</h1>
-<div class="meta">{_esc(v.run_id)} · 사건 {v.n_events}개 · 종료 {v.end_time:.0f}s · 시작된 작업 {n_tasks}개</div>
+<div class="meta">{_esc(v.run_id)} · 사건 {v.n_events}개 · 종료 {v.end_time:.0f}s · 시작된 작업 {n_tasks}개{extra_meta}</div>
 <p class="note">공개 로그만으로 그린 화면입니다. 실제 처리 시간·고장 원인 같은 숨겨진 값은 포함하지 않습니다. 시나리오 수치는 가상 값입니다.</p>
 <h2>셀 연결</h2><section>{_graph_svg(v, colors)}<p class="note">셀 역할은 실행 종료 시점 기준입니다.</p></section>
+<h2>공정 흐름</h2><section>{_flows_svg(v, colors)}<p class="note">작업 묶음 종류별 첫 인스턴스의 단계와 선행관계입니다. 화살표가 모이는 단계는 앞 단계가 모두 끝나야 시작합니다.</p></section>
 <h2>셀별 작업 타임라인</h2><section>{_gantt_svg(v, colors)}<div class="legend">{legend}</div>
 <p class="note">막대에 마우스를 올리면 작업 id와 시각이 보입니다. 흐린 막대는 종료 시점에 진행 중이던 작업입니다.</p></section>
 <h2>대기(READY) 작업 수</h2><section>{_ready_svg(v, colors)}<div class="legend">{cap_legend}</div></section>
