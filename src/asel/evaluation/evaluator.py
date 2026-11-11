@@ -41,25 +41,28 @@ def _mean(xs):
 
 
 def order_metrics(events) -> dict:
+    """작업 묶음(태그 "order") 단위 처리 시간. 묶음은 **모든 작업이 끝났을 때** 완료로 본다
+    (갈라짐·합침 흐름에서 끝 단계가 여러 개여도 맞다, #34. 일직선 사슬에서는 마지막 단계 완료와 같다)."""
     arrival: dict[str, float] = {}
-    last_step: dict[str, int] = {}
-    task_order: dict[str, tuple[str, int]] = {}
+    task_order: dict[str, str] = {}
+    remaining: dict[str, int] = {}
     done_at: dict[str, float] = {}
     end_time = 0.0
     for e in events:
         end_time = max(end_time, e.sim_time)
         if e.event_type == "TaskCreated":
             tags = e.payload.get("tags", {})
-            order, step = tags.get("order"), tags.get("step")
-            if order is None or step is None:
+            order = tags.get("order")
+            if order is None:
                 continue
-            task_order[e.entity_id] = (order, step)
+            task_order[e.entity_id] = order
             arrival.setdefault(order, e.sim_time)
-            last_step[order] = max(last_step.get(order, -1), step)
+            remaining[order] = remaining.get(order, 0) + 1
         elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "COMPLETED":
-            if e.entity_id in task_order:
-                order, step = task_order[e.entity_id]
-                if step == last_step[order]:
+            order = task_order.get(e.entity_id)
+            if order is not None:
+                remaining[order] -= 1
+                if remaining[order] == 0:
                     done_at[order] = e.sim_time
     flow = [done_at[o] - arrival[o] for o in done_at]
     open_ages = [end_time - arrival[o] for o in arrival if o not in done_at]

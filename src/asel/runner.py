@@ -145,7 +145,7 @@ def write_run_detailed(
         dumps_canonical(res.world.state.snapshot()) + "\n", encoding="utf-8", newline="\n"
     )
     (run_dir / "scenario.json").write_text(
-        dumps_canonical(res.scenario.model_dump(mode="json")) + "\n", encoding="utf-8", newline="\n"
+        dumps_canonical(res.scenario.canonical_dump()) + "\n", encoding="utf-8", newline="\n"
     )
     manifest = {
         "run_id": res.run_id,

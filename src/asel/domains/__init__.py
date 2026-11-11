@@ -43,4 +43,8 @@ def registered_domains() -> list[str]:
 
 def _load_builtin() -> None:
     # 내장 어댑터는 처음 쓸 때 등록한다 (io.scenario ↔ domains 순환 import 방지)
+    if "job_flow" not in _REGISTRY:
+        from asel.domains.job_flow import JobFlowAdapter
+
+        register(JobFlowAdapter())
     from asel.domains import warehouse  # noqa: F401

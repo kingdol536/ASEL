@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
-SCENARIO_SCHEMA_VERSION = "0.3"  # 0.2: faults, piecewise_poisson / 0.3: reconfigurable
+SCENARIO_SCHEMA_VERSION = "0.4"  # 0.2: faults, piecewise_poisson / 0.3: reconfigurable / 0.4: workload.flow
 
 
 class _Strict(BaseModel):
@@ -115,10 +115,55 @@ class JobStep(_Strict):
     service_time: Distribution
 
 
+class FlowStep(_Strict):
+    """공정 흐름의 한 단계 (부품). after 에 적은 단계가 모두 끝나야 시작할 수 있다."""
+
+    id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")
+    capability: str = Field(min_length=1)
+    service_time: Distribution
+    after: list[str] = Field(default_factory=list)
+
+
+class JobFlow(_Strict):
+    """작업 묶음 하나의 공정 흐름 (갈라짐·합침 가능한 DAG, #34).
+
+    단계는 자기보다 **앞에 적힌** 단계에만 의존할 수 있다 → 순환이 생기지 않는다."""
+
+    steps: list[FlowStep] = Field(min_length=1)
+    instance_prefix: str = Field(default="job", pattern=r"^[A-Za-z0-9_-]+$")
+
+    @model_validator(mode="after")
+    def _dag(self):
+        seen: set[str] = set()
+        for s in self.steps:
+            if s.id in seen:
+                raise ValueError(f"duplicate flow step id {s.id!r}")
+            if len(set(s.after)) != len(s.after):
+                raise ValueError(f"step {s.id!r} lists a predecessor twice")
+            for a in s.after:
+                if a not in seen:
+                    raise ValueError(f"step {s.id!r} depends on {a!r}, which is not an earlier step")
+            seen.add(s.id)
+        return self
+
+
 class Workload(_Strict):
     arrival_process: ArrivalProcess
-    job_template: list[JobStep] = Field(min_length=1)  # 앞 단계가 다음 단계의 선행 작업
+    # 둘 중 하나: job_template(일직선 사슬, 0.1~0.3 호환) 또는 flow(갈라짐·합침, 0.4)
+    job_template: list[JobStep] | None = Field(default=None, min_length=1)  # 앞 단계가 다음 단계의 선행 작업
+    flow: JobFlow | None = None
     max_arrivals: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _one_flow(self):
+        if (self.job_template is None) == (self.flow is None):
+            raise ValueError("workload needs exactly one of job_template or flow")
+        return self
+
+    def capabilities(self) -> list[str]:
+        if self.flow is not None:
+            return [s.capability for s in self.flow.steps]
+        return [s.capability for s in self.job_template]
 
 
 class FaultSpec(_Strict):
@@ -150,7 +195,7 @@ class ObjectiveSpec(BaseModel):
 
 
 class Scenario(_Strict):
-    schema_version: Literal["0.1", "0.2", "0.3"]
+    schema_version: Literal["0.1", "0.2", "0.3", "0.4"]
     scenario_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
     domain: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")  # 어댑터는 실행 시 레지스트리에서 고른다 (#33)
     seed: int
@@ -169,8 +214,10 @@ class Scenario(_Strict):
             self.faults or isinstance(self.workload.arrival_process, PiecewisePoissonArrival)
         ):
             raise ValueError("faults / piecewise_poisson require schema_version '0.2'")
-        if self.schema_version != "0.3" and any(e.reconfigurable for e in self.entities):
-            raise ValueError("reconfigurable entities require schema_version '0.3'")
+        if self.schema_version not in ("0.3", "0.4") and any(e.reconfigurable for e in self.entities):
+            raise ValueError("reconfigurable entities require schema_version '0.3' or later")
+        if self.schema_version != "0.4" and self.workload.flow is not None:
+            raise ValueError("workload.flow requires schema_version '0.4'")
         return self
 
     @model_validator(mode="after")
@@ -200,14 +247,34 @@ class Scenario(_Strict):
                 if load > cap[ent]:
                     raise ValueError(f"overlapping faults exceed capacity of {ent}")
         offered = {c for e in self.entities if e.capacity > 0 for c in e.capabilities}
-        for step in self.workload.job_template:
-            if step.capability not in offered:
-                raise ValueError(f"no entity with capacity offers capability {step.capability!r}")
+        for capability in self.workload.capabilities():
+            # 재구성으로만 제공 가능한 역할도 인정한다 (옵션에 있으면)
+            options = {c for e in self.entities if e.reconfigurable for o in e.reconfigurable.options for c in o}
+            if capability not in offered and capability not in options:
+                raise ValueError(f"no entity with capacity offers capability {capability!r}")
         return self
+
+    def canonical_dump(self) -> dict:
+        """설정의 정규 표현. 나중에 추가된 선택 항목이 비어 있으면 빼서, 예전 시나리오의
+        해시(→ run_id → 사건 로그 바이트)가 스키마 확장 전과 같게 유지한다 (#34)."""
+        d = self.model_dump(mode="json")
+        wl = d["workload"]
+        for k in ("flow", "job_template"):
+            if wl.get(k) is None:
+                wl.pop(k, None)
+        # 정규 형식은 시나리오가 선언한 스키마 버전을 따른다: 그 버전 뒤에 생긴 항목은 넣지 않는다.
+        # (0.3 에서 생긴 entities[].reconfigurable 이 0.1/0.2 시나리오 해시를 바꿔 EXP-001 run_id·사건 로그
+        #  바이트 재현을 깬 회귀를 바로잡음 — M5 #35 재현성 점검에서 발견)
+        if self.schema_version in ("0.1", "0.2"):
+            for e in d["entities"]:
+                if e.get("reconfigurable") is None:
+                    e.pop("reconfigurable", None)
+        return d
 
     def config_hash(self) -> str:
         """시드를 제외한 설정의 해시. 시드는 manifest 에 따로 기록한다."""
-        d = self.model_dump(mode="json", exclude={"seed"})
+        d = self.canonical_dump()
+        d.pop("seed", None)
         blob = json.dumps(d, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
