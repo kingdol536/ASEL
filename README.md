@@ -1,6 +1,6 @@
 # Adaptive System Evolution Lab (ASEL)
 
-> **진행 중: M1~M4 구현·실험 완료 (M4 결과는 사용자 승인 전 잠정) / 다음: M5 복수 조건 실험, 3D 시험**  
+> **진행 중: M1~M5 완료 (M4 결과는 사용자 승인 전 잠정) / 엔진: 물류·조립·IT 서비스 3개 환경, 공통 언어 v0 / 다음: M6 통합 포트폴리오**  
 > 언어: 한국어 · 시작: 2026-11-11 · 1차: 12주 포트폴리오(~2027-02-02) · 2차: 후속 5~12개월 연구
 
 ## 한 문장 소개
@@ -63,4 +63,4 @@ uv run asel replay-check experiments/runs/warehouse-small-a/<run_dir>   # 이벤
 
 ## 주의
 
-현재 구현은 논리 세계 코어, 공개/비공개 로그 분리, 정책 규약과 Claude 정책 어댑터, 독립 평가기, 셀 재구성과 구조 정책까지다(M1~M4). 3D 는 아직 없다. 실험 결과는 가상 시나리오의 측정값이며 현실 성능 주장이 아니다 — [M2](experiments/reports/M2-gate.md) · [M3](experiments/reports/M3-gate.md) · [M4](experiments/reports/M4-gate.md) 보고서 참고. 특정 산업에의 적용성은 도메인별 검증이 필요하다.
+현재 구현은 논리 세계 코어, 공개/비공개 로그 분리, 정책 규약과 Claude 정책 어댑터, 독립 평가기, 셀 재구성과 구조 정책까지다(M1~M4). 3D 는 아직 없다. 실험 결과는 가상 시나리오의 측정값이며 현실 성능 주장이 아니다 — [M2](experiments/reports/M2-gate.md) · [M3](experiments/reports/M3-gate.md) · [M4](experiments/reports/M4-gate.md) · [M5](experiments/reports/M5-gate.md) 보고서 참고. 엔진의 공통 언어: [docs/11](docs/11-COMMON-LANGUAGE.md). 특정 산업에의 적용성은 도메인별 검증이 필요하다.
