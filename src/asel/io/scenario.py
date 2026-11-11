@@ -306,9 +306,15 @@ class Scenario(_Strict):
                 if load > cap[ent]:
                     raise ValueError(f"overlapping faults exceed capacity of {ent}")
         offered = {c for e in self.entities if e.capacity > 0 for c in e.capabilities}
+        # 재구성으로만 제공 가능한 역할도 인정한다 (그 자리 천장 높이에 들어가는 옵션만)
+        options = {
+            c for e in self.entities if e.reconfigurable and e.capacity > 0
+            for o in e.reconfigurable.options
+            if e.space is None or all(
+                c2 not in self.capability_space or self.capability_space[c2].height_m <= e.space.ceiling_m for c2 in o)
+            for c in o
+        }
         for capability in self.workload.capabilities():
-            # 재구성으로만 제공 가능한 역할도 인정한다 (옵션에 있으면)
-            options = {c for e in self.entities if e.reconfigurable for o in e.reconfigurable.options for c in o}
             if capability not in offered and capability not in options:
                 raise ValueError(f"no entity with capacity offers capability {capability!r}")
         return self
@@ -325,10 +331,9 @@ class Scenario(_Strict):
             d.pop("objective_schedule", None)
         if not d.get("capability_space"):
             d.pop("capability_space", None)
-        if self.schema_version != "0.4":
-            for e in d["entities"]:
-                if e.get("space") is None:
-                    e.pop("space", None)
+        for e in d["entities"]:
+            if e.get("space") is None:
+                e.pop("space", None)
         # 정규 형식은 시나리오가 선언한 스키마 버전을 따른다: 그 버전 뒤에 생긴 항목은 넣지 않는다.
         # (0.3 에서 생긴 entities[].reconfigurable 이 0.1/0.2 시나리오 해시를 바꿔 EXP-001 run_id·사건 로그
         #  바이트 재현을 깬 회귀를 바로잡음 — M5 #35 재현성 점검에서 발견)

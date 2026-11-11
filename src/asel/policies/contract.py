@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from asel.core.actions import Action, ActionKind
-from asel.core.model import EntityMode, TaskStatus, WorldState
+from asel.core.model import EntityMode, TaskStatus, WorldState, roles_over_ceiling
 
 OPEN_STATUSES = (TaskStatus.WAITING, TaskStatus.READY, TaskStatus.RUNNING, TaskStatus.BLOCKED)
 
@@ -123,9 +123,8 @@ def _cell(state: WorldState, e) -> dict:
     if e.space is not None:
         d["ceiling_m"] = e.space["ceiling_m"]
         # 이 셀이 가질 수 있는 역할 중 천장 높이를 넘는 것 (공개 설계 정보)
-        d["blocked_roles"] = sorted(
-            c for c in {x for o in (e.reconfig or {}).get("options", []) for x in o}
-            if float(state.capability_space.get(c, {}).get("height_m", 0.0)) > float(e.space["ceiling_m"])
+        d["blocked_roles"] = roles_over_ceiling(
+            e.space, state.capability_space, {x for o in (e.reconfig or {}).get("options", []) for x in o}
         )
     return d
 

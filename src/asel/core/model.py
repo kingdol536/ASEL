@@ -47,6 +47,14 @@ class EntityMode:
     CHANGEOVER = "changeover"  # 전환 중: 작업 없음, changeover_s 뒤 새 역할
 
 
+def roles_over_ceiling(space: dict | None, capability_space: dict, roles) -> list[str]:
+    """천장 높이보다 높은 공간이 필요한 역할 (정렬). 공간 정보가 없으면 제약 없음 (#40)."""
+    if space is None:
+        return []
+    ceiling = float(space.get("ceiling_m", float("inf")))
+    return sorted(c for c in set(roles) if float(capability_space.get(c, {}).get("height_m", 0.0)) > ceiling)
+
+
 @dataclass
 class Entity:
     id: str

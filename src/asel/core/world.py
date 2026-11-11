@@ -27,6 +27,7 @@ from asel.core.model import (
     TaskStatus,
     WorldState,
     is_allowed_transition,
+    roles_over_ceiling,
 )
 
 ENV_ACTOR = "env"
@@ -39,6 +40,10 @@ class ReducerError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Reducer: 이벤트 -> 상태 변경. World 와 replay 가 공유한다.
 # ---------------------------------------------------------------------------
+
+
+# 아직 시작하지 않은 작업 (cancel_tasks 대상, #41)
+_CANCELLABLE = (TaskStatus.CREATED, TaskStatus.WAITING, TaskStatus.READY, TaskStatus.BLOCKED)
 
 
 def apply_event(state: WorldState, ev: Event) -> None:
@@ -333,17 +338,19 @@ class World:
         if len(set(ids)) != len(ids):
             return ["cancel_tasks: duplicate task ids"]
         missing = [x for x in ids if x not in self.state.tasks]
-        return [f"cancel_tasks: unknown tasks {missing[:3]}"] if missing else []
+        if missing:
+            return [f"cancel_tasks: unknown tasks {missing[:3]}"]
+        # 취소되는 작업의 아직 끝나지 않은 후속 작업도 함께 취소해야 한다 (고아 작업 방지)
+        chosen, orphans = set(ids), []
+        for x in ids:
+            if self.state.tasks[x].status in _CANCELLABLE:
+                orphans += [s for s in self._successors.get(x, [])
+                            if s not in chosen and self.state.tasks[s].status in _CANCELLABLE]
+        return [f"cancel_tasks: successors would be orphaned {sorted(set(orphans))[:3]}"] if orphans else []
 
     def clearance_violations(self, ent: Entity, caps) -> list[str]:
         """천장 높이보다 높은 공간이 필요한 역할 목록. 공간 정보가 없으면 제약 없음."""
-        if ent.space is None:
-            return []
-        ceiling = float(ent.space.get("ceiling_m", float("inf")))
-        return sorted(
-            c for c in caps
-            if float(self.state.capability_space.get(c, {}).get("height_m", 0.0)) > ceiling
-        )
+        return roles_over_ceiling(ent.space, self.state.capability_space, caps)
 
     def offered_capabilities(self, override: tuple[str, tuple[str, ...]] | None = None) -> set[str]:
         """용량이 있는 셀이 (전환이 끝났을 때) 제공하게 될 capability 집합.
@@ -566,7 +573,7 @@ class World:
         if a.kind == ActionKind.CANCEL_TASKS:
             # 아직 시작하지 않은 작업만 취소한다. 진행 중 작업은 끝까지 처리하고(자원 회계 단순화),
             # 이미 끝난 작업은 그대로 둔다. 취소할 것이 없으면 효과 없이 수락된다.
-            cancellable = (TaskStatus.CREATED, TaskStatus.WAITING, TaskStatus.READY, TaskStatus.BLOCKED)
+            cancellable = _CANCELLABLE
             return [
                 (EventType.TASK_STATE_CHANGED, tid, {"from": str(self.state.tasks[tid].status), "to": "CANCELLED"}, None)
                 for tid in p["tasks"]

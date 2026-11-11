@@ -39,9 +39,8 @@ def world_init_payload(sc: Scenario) -> tuple:
         entities.append(d)
     relations = [{"source": r.source, "target": r.target, "kind": r.kind} for r in sc.relations]
     resources = [{"id": e.id, "capacity": e.capacity} for e in sc.entities]
-    if sc.capability_space:
-        return entities, relations, resources, {k: v.model_dump() for k, v in sc.capability_space.items()}
-    return entities, relations, resources
+    space = {k: v.model_dump() for k, v in sc.capability_space.items()} or None
+    return entities, relations, resources, space
 
 
 def _flow_steps(flow) -> list[tuple[str, str, object, list[str]]]:
@@ -91,7 +90,8 @@ class JobFlowWorkload:
         wl = sc.workload
         flows = [m.flow for m in wl.mix] if wl.mix is not None else [wl.flow]
         self._timeouts = [f.timeout_s if f is not None else None for f in flows]
-        self._mix = rng.get("mix") if len(self._flows) > 1 else None  # 혼류일 때만 쓰는 별도 난수 스트림
+        self._is_mix = wl.mix is not None
+        self._mix = rng.get("mix") if len(self._flows) > 1 else None  # 흐름이 둘 이상일 때만 쓰는 별도 난수 스트림
         self._total_w = sum(w for w, _, _ in self._flows)
         self._count = 0
 
@@ -161,7 +161,6 @@ class JobFlowWorkload:
         self._count += 1
         if self._mix is None:
             _, prefix, steps = self._flows[0]
-            extra = {}
             timeout = self._timeouts[0]
         else:
             u, acc = self._mix.random() * self._total_w, 0.0
@@ -170,7 +169,7 @@ class JobFlowWorkload:
                 if u < acc:
                     break
             timeout = self._timeouts[k]
-            extra = {"flow": prefix}  # 혼류에서만 붙인다 (기존 시나리오 사건 로그 불변)
+        extra = {"flow": prefix} if self._is_mix else {}  # 혼류에서만 붙인다 (기존 시나리오 사건 로그 불변)
         inst = f"{prefix}-{n:05d}"
         actions: list[Action] = []
         for i, (sid, capability, dist, after) in enumerate(steps):

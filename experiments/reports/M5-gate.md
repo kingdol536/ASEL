@@ -22,7 +22,8 @@
 
 ## 2. 테스트 결과
 
-- 자동 테스트 **205개 통과** (M4 150개 → +55).
+- 자동 테스트 **209개 통과** (M4 150개 → +59).
+- 코드 리뷰(main...m5) 지적 9건 중 7건 수정: 고아 작업을 남기는 취소 거절, 항목 하나짜리 혼류의 흐름 태그, 천장에 막힌 옵션으로만 제공되는 역할 거절, 높이 제약 계산 한 곳으로, 어댑터 반환 형식 통일, 정규 형식의 빈 `space` 제거, 검증 반복 계산. 남긴 것: 기본 프롬프트(위 §3.3 주의), 완료된 묶음에도 시간 초과 사건이 기록되는 로그 낭비(동작 영향 없음).
 
 ## 3. 측정된 증거
 
@@ -43,7 +44,7 @@
 - B 는 공통 언어를 만들 때 알려진 환경이라 이식성의 증거로 쓰지 않는다 (결정 0008 에 제외 특징 4개를 명시).
 - **3개 환경(A 물류, B 조립, C IT) 결과를 모든 산업 범용성으로 해석하지 않는다** (docs/07 §7).
 
-M5 전체(동결 → 현재) 코어 변경: 92줄, 공개 인터페이스 +7 (`cancel_tasks`, `set_objective`, `ObjectiveChanged`, `Entity.space`, `WorldState.capability_space`, `WorldState.objective`, `World.clearance_violations()`), 공통 언어 +6. 기존 인터페이스의 **삭제·변경은 0**이다 ([원자료](assets/M5/portability_m5_total.json)).
+M5 전체(동결 → 보고서 커밋 `a696008`, 리뷰 수정 전) 코어 변경: 92줄, 공개 인터페이스 +7 (`cancel_tasks`, `set_objective`, `ObjectiveChanged`, `Entity.space`, `WorldState.capability_space`, `WorldState.objective`, `World.clearance_violations()`), 공통 언어 +6. 기존 인터페이스의 **삭제·변경은 0**이다 ([원자료](assets/M5/portability_m5_total.json)).
 
 ### 3.2 재현성
 
@@ -54,6 +55,7 @@ M5 전체(동결 → 현재) 코어 변경: 92줄, 공개 인터페이스 +7 (`c
 ### 3.3 AI 즉시 연결
 
 - Claude 정책을 B·C 에 **소스 코드 변경 0줄**로 연결 (정책 규약·관측 투영이 그대로 동작). 산업 중립 프롬프트 `v2-neutral`, 기존 녹화는 `v1-warehouse` 로 보존.
+- 주의: 기본 프롬프트는 EXP-001 재생을 위해 `v1-warehouse` 다. B·C 에서는 `ASEL_LLM_PROMPT=v2-neutral` 을 **명시해야** 한다 (EXP-003 계획서에 고정할 항목).
 - 안전 경계: 숨겨진 처리 시간이 프롬프트에 없음, 목표는 전달되지만 채점값은 전달되지 않음, 무효 제안은 거절. **실제 API 호출은 하지 않았다** (EXP-003 승인 전).
 
 ### 3.4 3D 공간 제약: 2D 에서 유효한 구조 변경이 3D 에서 불가능 (탐색적, 개발 시드 0~9)

@@ -2,7 +2,7 @@
 
 시나리오의 `domain` 값으로 어댑터를 고른다. 실행기는 특정 산업 코드를 직접 부르지 않는다.
 어댑터는 두 가지만 제공한다:
-- world_init_payload(scenario) -> (entities, relations, resources)   세계 초기 구성
+- world_init_payload(scenario) -> (entities, relations, resources, capability_space | None)   세계 초기 구성
 - workload(scenario, seed) -> WorkloadSource                          외부 사건(작업 도착·고장 등) 발생기
 """
 
@@ -14,7 +14,7 @@ from typing import Any, Protocol
 class DomainAdapter(Protocol):
     name: str
 
-    def world_init_payload(self, sc: Any) -> tuple[list[dict], list[dict], list[dict]]: ...
+    def world_init_payload(self, sc: Any) -> tuple[list[dict], list[dict], list[dict], dict | None]: ...
 
     def workload(self, sc: Any, seed: int) -> Any: ...
 
