@@ -58,11 +58,14 @@ def test_html_makes_no_external_requests(runs):
     assert urls <= {XHTML_NS}, urls
 
 
-def test_scene_text_cannot_break_out_of_script_tag(runs):
+@pytest.mark.parametrize("evil", ["</script><script>alert(1)</script>", "<!--<script>", "a<b"])
+def test_scene_text_cannot_break_out_of_script_tag(runs, evil):
     scene = scene_for_run(runs[1])
-    scene["cells"][0]["id"] = "</script><script>alert(1)</script>"  # 데이터에 태그 문자열이 있어도
+    scene["cells"][0]["id"] = evil  # 데이터에 태그·주석 문자열이 있어도
     page = render_html(scene)
-    assert json.loads(_script(page, "scene-data"))["cells"][0]["id"] == scene["cells"][0]["id"]
+    data = _script(page, "scene-data")
+    assert "<" not in data  # 데이터 블록에는 '<' 가 없다 → HTML 해석 상태가 바뀌지 않는다
+    assert json.loads(data)["cells"][0]["id"] == evil  # 값은 그대로
     assert page.count("</script>") == 3  # 장면·라이브러리·앱 스크립트의 닫는 태그뿐
 
 

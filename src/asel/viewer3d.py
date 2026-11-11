@@ -24,13 +24,15 @@ def three_source() -> str:
     if hashlib.sha256(data).hexdigest() != THREE_SHA256:
         raise RuntimeError(f"{THREE_FILE} does not match the recorded SHA-256 (see SOURCE.md)")
     src = data.decode("utf-8")
-    if "</script" in src.lower():  # HTML 안에 넣을 때 script 태그가 끊기지 않아야 한다
-        raise RuntimeError("three.module.min.js contains '</script'")
+    low = src.lower()
+    if any(x in low for x in ("</script", "<script", "<!--")):  # script 태그 안에 넣을 때 HTML 해석이 바뀌면 안 된다
+        raise RuntimeError("three.module.min.js contains a sequence unsafe inside a <script> element")
     return src
 
 
 def render_html(scene: dict) -> str:
-    data = dumps(scene).replace("</", "<\\/")  # JSON 의 "\/" 는 "/" 와 같다 → script 태그 안전
+    # JSON 의 '<' 는 문자열 안에만 나온다 → 모두 < 로 바꾸면 '</script', '<!--' 가 생길 수 없다 (값은 같다)
+    data = dumps(scene).replace("<", "\\u003c")
     title = html.escape(f"ASEL 3D 재생 — {scene.get('run_id', '')}")
     license_text = html.escape((THREE_DIR / "LICENSE").read_text(encoding="utf-8"))
     return (_TEMPLATE.replace("__TITLE__", title).replace("__SCENE_JSON__", data)
