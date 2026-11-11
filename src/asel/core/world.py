@@ -306,7 +306,18 @@ class World:
             r += self._validate_request_reconfiguration(action.params)
         elif action.kind == ActionKind.COMPLETE_RECONFIGURATION:
             r += self._validate_complete_reconfiguration(action.params)
+        elif action.kind == ActionKind.CANCEL_TASKS:
+            r += self._validate_cancel(action.params)
         return r
+
+    def _validate_cancel(self, p: dict) -> list[str]:
+        ids = p.get("tasks")
+        if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+            return ["cancel_tasks: tasks must be a non-empty list of task ids"]
+        if len(set(ids)) != len(ids):
+            return ["cancel_tasks: duplicate task ids"]
+        missing = [x for x in ids if x not in self.state.tasks]
+        return [f"cancel_tasks: unknown tasks {missing[:3]}"] if missing else []
 
     def offered_capabilities(self, override: tuple[str, tuple[str, ...]] | None = None) -> set[str]:
         """용량이 있는 셀이 (전환이 끝났을 때) 제공하게 될 capability 집합.
@@ -518,6 +529,16 @@ class World:
         if a.kind == ActionKind.COMPLETE_RECONFIGURATION:
             ent = self.state.entities[p["entity"]]
             return [(EventType.RECONFIGURATION_COMPLETED, ent.id, {"capabilities": list(ent.target_capabilities)}, None)]
+
+        if a.kind == ActionKind.CANCEL_TASKS:
+            # 아직 시작하지 않은 작업만 취소한다. 진행 중 작업은 끝까지 처리하고(자원 회계 단순화),
+            # 이미 끝난 작업은 그대로 둔다. 취소할 것이 없으면 효과 없이 수락된다.
+            cancellable = (TaskStatus.CREATED, TaskStatus.WAITING, TaskStatus.READY, TaskStatus.BLOCKED)
+            return [
+                (EventType.TASK_STATE_CHANGED, tid, {"from": str(self.state.tasks[tid].status), "to": "CANCELLED"}, None)
+                for tid in p["tasks"]
+                if self.state.tasks[tid].status in cancellable
+            ]
 
         raise AssertionError(f"unhandled kind {a.kind}")
 

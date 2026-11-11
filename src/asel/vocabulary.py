@@ -66,6 +66,7 @@ ACTIONS: dict[str, str] = {
     ActionKind.END_OUTAGE: "고장 종료 (환경)",
     ActionKind.REQUEST_RECONFIGURATION: "역할 전환 요청 (구조 제어 주체)",
     ActionKind.COMPLETE_RECONFIGURATION: "역할 전환 완료 (환경)",
+    ActionKind.CANCEL_TASKS: "아직 시작하지 않은 작업 포기 (환경, 예: 요청 시간 초과). 진행 중 작업은 끝까지",
 }
 
 EVENTS: dict[str, str] = {

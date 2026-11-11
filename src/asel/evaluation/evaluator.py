@@ -47,6 +47,7 @@ def order_metrics(events) -> dict:
     task_order: dict[str, str] = {}
     remaining: dict[str, int] = {}
     done_at: dict[str, float] = {}
+    cancelled: set[str] = set()
     end_time = 0.0
     for e in events:
         end_time = max(end_time, e.sim_time)
@@ -64,8 +65,11 @@ def order_metrics(events) -> dict:
                 remaining[order] -= 1
                 if remaining[order] == 0:
                     done_at[order] = e.sim_time
+        elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "CANCELLED":
+            if e.entity_id in task_order:
+                cancelled.add(task_order[e.entity_id])
     flow = [done_at[o] - arrival[o] for o in done_at]
-    open_ages = [end_time - arrival[o] for o in arrival if o not in done_at]
+    open_ages = [end_time - arrival[o] for o in arrival if o not in done_at and o not in cancelled]
     return {
         "orders_arrived": len(arrival),
         "orders_completed": len(done_at),
@@ -78,6 +82,8 @@ def order_metrics(events) -> dict:
             "n": len(flow),
         },
         # 끝나지 않은 주문(중도절단): 종료 시점까지의 경과 시간. 처리 시간 통계에 넣지 않고 따로 보고한다.
+        # 일부 작업이 취소(예: 시간 초과)된 묶음 수. 이 묶음은 완료되지 않으므로 처리 시간 통계에 없다
+        "orders_cancelled": len(cancelled),
         "orders_censored": {"n": len(open_ages), "age_at_end_mean_s": _mean(open_ages),
                             "age_at_end_max_s": max(open_ages) if open_ages else None},
     }
@@ -184,7 +190,7 @@ def write_evaluation(run_dir: Path) -> dict:
 
 
 EVAL_COLUMNS = [
-    "scenario_id", "policy", "structure", "seed", "orders_arrived", "orders_completed", "completion_rate",
+    "scenario_id", "policy", "structure", "seed", "orders_arrived", "orders_completed", "orders_cancelled", "completion_rate",
     "flow_mean_s", "flow_median_s", "flow_p95_s", "censored_n", "backlog_end",
     "proposals", "invalid_proposal_rate", "fallback_proposals", "policy_decisions", "fallback_rate",
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
@@ -199,6 +205,7 @@ def eval_row(ev: dict) -> dict:
         "scenario_id": ev["scenario_id"], "policy": ev["policy"], "structure": ev.get("structure_policy") or "",
         "seed": ev["seed"],
         "orders_arrived": o["orders_arrived"], "orders_completed": o["orders_completed"],
+        "orders_cancelled": o["orders_cancelled"],
         "completion_rate": o["completion_rate"],
         "flow_mean_s": o["order_flow_time_s"]["mean"], "flow_median_s": o["order_flow_time_s"]["median"],
         "flow_p95_s": o["order_flow_time_s"]["p95"], "censored_n": o["orders_censored"]["n"],

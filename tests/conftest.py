@@ -18,6 +18,7 @@ GRANTS = {
         ActionKind.COMPLETE_TASK,
         ActionKind.BEGIN_OUTAGE,
         ActionKind.END_OUTAGE,
+        ActionKind.CANCEL_TASKS,
     },
     DISPATCHER: {ActionKind.START_TASK},
 }

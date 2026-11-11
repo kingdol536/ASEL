@@ -84,6 +84,9 @@ class JobFlowWorkload:
         else:
             self._segments = [(0.0, math.inf, 60.0 / ap.rate_per_min)]
         self._flows = resolved_flows(sc)
+        wl = sc.workload
+        flows = [m.flow for m in wl.mix] if wl.mix is not None else [wl.flow]
+        self._timeouts = [f.timeout_s if f is not None else None for f in flows]
         self._mix = rng.get("mix") if len(self._flows) > 1 else None  # 혼류일 때만 쓰는 별도 난수 스트림
         self._total_w = sum(w for w, _, _ in self._flows)
         self._count = 0
@@ -143,17 +146,21 @@ class JobFlowWorkload:
         kind, n = data
         if kind in ("fault_start", "fault_end"):
             return [self._fault_action(kind, n)], []
+        if kind == "timeout":
+            return [Action(ENV_ACTOR, ActionKind.CANCEL_TASKS, {"tasks": list(n)})], []
         assert kind == "arrival", kind
         self._count += 1
         if self._mix is None:
             _, prefix, steps = self._flows[0]
             extra = {}
+            timeout = self._timeouts[0]
         else:
             u, acc = self._mix.random() * self._total_w, 0.0
-            for w, prefix, steps in self._flows:
+            for k, (w, prefix, steps) in enumerate(self._flows):
                 acc += w
                 if u < acc:
                     break
+            timeout = self._timeouts[k]
             extra = {"flow": prefix}  # 혼류에서만 붙인다 (기존 시나리오 사건 로그 불변)
         inst = f"{prefix}-{n:05d}"
         actions: list[Action] = []
@@ -171,7 +178,10 @@ class JobFlowWorkload:
                     private={"duration": self._sample(dist)},
                 )
             )
-        return actions, self._next_arrival(now)
+        later = self._next_arrival(now)
+        if timeout is not None:
+            later.append((now + timeout, ("timeout", tuple(a.params["id"] for a in actions))))
+        return actions, later
 
 
 class JobFlowAdapter:

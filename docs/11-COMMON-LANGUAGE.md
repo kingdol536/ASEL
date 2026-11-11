@@ -98,6 +98,7 @@ graph LR
 | 행동 | 의미 |
 |---|---|
 | `begin_outage` | 고장 시작: 자원 용량 일부 사용 불가 (환경). 원인은 비공개 |
+| `cancel_tasks` | 아직 시작하지 않은 작업 포기 (환경, 예: 요청 시간 초과). 진행 중 작업은 끝까지 |
 | `complete_reconfiguration` | 역할 전환 완료 (환경) |
 | `complete_task` | 작업 완료 = 자원 해제 + 후속 작업 READY (환경) |
 | `create_task` | 작업 생성 (환경). 실제 처리 시간은 비공개 |

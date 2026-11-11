@@ -131,6 +131,8 @@ class JobFlow(_Strict):
 
     steps: list[FlowStep] = Field(min_length=1)
     instance_prefix: str = Field(default="job", pattern=r"^[A-Za-z0-9_-]+$")
+    # 도착 뒤 이 시간이 지나면 아직 시작하지 않은 단계를 포기한다 (예: 요청 시간 초과, #41). None = 기한 없음
+    timeout_s: PositiveFloat | None = None
 
     @model_validator(mode="after")
     def _dag(self):
