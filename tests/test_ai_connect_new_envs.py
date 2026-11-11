@@ -37,6 +37,7 @@ def test_claude_connects_without_code_changes(tmp_path, sc):
     # 숨겨진 참값(실제 처리 시간)이 프롬프트에 없다: 키 이름 + 우연히 겹칠 수 없는 긴 난수 값으로 확인
     # (0.2 같은 짧은 상수 처리 시간은 다른 시각 값의 일부로 우연히 나타날 수 있어 값 비교에서 뺀다)
     assert '"duration"' not in sent
+    assert "timeout" not in sent.lower() and "deadline" not in sent.lower()  # C 의 요청 시간 제한도 보내지 않는다
     long_vals = [repr(t.duration) for t in res.world.state.tasks.values() if len(repr(t.duration)) >= 8]
     assert long_vals and not any(v in sent for v in long_vals)
 

@@ -1,0 +1,270 @@
+{
+  "note": "탐색적 분석 (사전 고정 밖). 가설 판정은 analysis.json 만 쓴다.",
+  "matched_c_dispatch": {
+    "seeds": "300-314",
+    "arms": {
+      "A-fifo": {
+        "n": 15,
+        "orders_cancelled": 29.466666666666665,
+        "flow_mean_s": 22.873692359438607,
+        "completion_rate": 0.9398777765055981,
+        "flow_p95_s": 152.02415510696875
+      },
+      "A-order-age": {
+        "n": 15,
+        "orders_cancelled": 20.6,
+        "flow_mean_s": 22.747750928807267,
+        "completion_rate": 0.949707121153165,
+        "flow_p95_s": 148.11158620865066
+      },
+      "A-claude": {
+        "n": 15,
+        "orders_cancelled": 23.133333333333333,
+        "flow_mean_s": 22.854793149295066,
+        "completion_rate": 0.946736607075495,
+        "flow_p95_s": 148.02135865848808
+      }
+    }
+  },
+  "c_mechanism": {
+    "S-p0": {
+      "runs": 30,
+      "switches_per_run": 0.0,
+      "reversals_per_run": 0.0,
+      "cancelled_per_run": 27.1,
+      "app2_not_serving_app_time_share": 0.0,
+      "cancellations_in_that_time_share": 0.0,
+      "concentration": null
+    },
+    "S-p1": {
+      "runs": 30,
+      "switches_per_run": 2.8,
+      "reversals_per_run": 1.8333333333333333,
+      "cancelled_per_run": 124.76666666666667,
+      "app2_not_serving_app_time_share": 0.5936667767144296,
+      "cancellations_in_that_time_share": 0.8757681004541812,
+      "concentration": 1.4751846234364068
+    },
+    "S-p2": {
+      "runs": 30,
+      "switches_per_run": 1.5333333333333334,
+      "reversals_per_run": 0.5333333333333333,
+      "cancelled_per_run": 166.03333333333333,
+      "app2_not_serving_app_time_share": 0.6197334944611913,
+      "cancellations_in_that_time_share": 0.9391688415980727,
+      "concentration": 1.515439862443783
+    },
+    "S-claude-haiku": {
+      "runs": 30,
+      "switches_per_run": 8.6,
+      "reversals_per_run": 7.6,
+      "cancelled_per_run": 184.36666666666667,
+      "app2_not_serving_app_time_share": 0.760506709396067,
+      "cancellations_in_that_time_share": 0.9077924425962756,
+      "concentration": 1.1936678945504253
+    },
+    "S-claude-sonnet": {
+      "runs": 10,
+      "switches_per_run": 6.2,
+      "reversals_per_run": 5.2,
+      "cancelled_per_run": 154.6,
+      "app2_not_serving_app_time_share": 0.7082285902491362,
+      "cancellations_in_that_time_share": 0.8667529107373868,
+      "concentration": 1.2238321393273406
+    }
+  },
+  "sonnet_c": {
+    "seeds": "300-309",
+    "note": "탐색적 (사전 고정 밖, N=10). H6 판정에 쓰지 않는다.",
+    "S-claude-haiku-vs-S-claude-sonnet:orders_cancelled": {
+      "n": 10,
+      "mean_a": 169.1,
+      "mean_b": 154.6,
+      "mean_diff": -14.5,
+      "ci95": [
+        -32.1,
+        4.3
+      ],
+      "b_better_seeds": 7
+    },
+    "S-p0-vs-S-claude-sonnet:orders_cancelled": {
+      "n": 10,
+      "mean_a": 28.7,
+      "mean_b": 154.6,
+      "mean_diff": 125.9,
+      "ci95": [
+        89.1,
+        159.0
+      ],
+      "b_better_seeds": 0
+    },
+    "S-p1-vs-S-claude-sonnet:orders_cancelled": {
+      "n": 10,
+      "mean_a": 123.7,
+      "mean_b": 154.6,
+      "mean_diff": 30.9,
+      "ci95": [
+        8.9,
+        53.0
+      ],
+      "b_better_seeds": 2
+    },
+    "sonnet_fallback_rate_mean": 0.0,
+    "sonnet_invalid_rate_mean": 0.0
+  },
+  "costs": {
+    "pilot/a-claude-B": {
+      "runs": 2,
+      "usd": 0.7086,
+      "usd_per_run": 0.3543,
+      "api_calls": 892,
+      "calls_per_run": 446.0,
+      "dispatch_latency_ms_per_call": 1629.8,
+      "run_s_mean": 734.0
+    },
+    "pilot/a-claude-C": {
+      "runs": 2,
+      "usd": 2.4971,
+      "usd_per_run": 1.2486,
+      "api_calls": 5236,
+      "calls_per_run": 2618.0,
+      "dispatch_latency_ms_per_call": 1405.2,
+      "run_s_mean": 3718.0
+    },
+    "pilot/s-claude-haiku-B": {
+      "runs": 2,
+      "usd": 0.1323,
+      "usd_per_run": 0.0662,
+      "api_calls": 192,
+      "calls_per_run": 96.0,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 248.5
+    },
+    "pilot/s-claude-haiku-C": {
+      "runs": 2,
+      "usd": 0.0312,
+      "usd_per_run": 0.0156,
+      "api_calls": 62,
+      "calls_per_run": 31.0,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 88.5
+    },
+    "pilot/s-claude-sonnet-B": {
+      "runs": 2,
+      "usd": 2.2016,
+      "usd_per_run": 1.1008,
+      "api_calls": 190,
+      "calls_per_run": 95.0,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 248.0
+    },
+    "pilot/s-claude-sonnet-C": {
+      "runs": 2,
+      "usd": 0.5328,
+      "usd_per_run": 0.2664,
+      "api_calls": 61,
+      "calls_per_run": 30.5,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 97.0
+    },
+    "main/a-claude-B": {
+      "runs": 30,
+      "usd": 9.264,
+      "usd_per_run": 0.3088,
+      "api_calls": 13510,
+      "calls_per_run": 450.3,
+      "dispatch_latency_ms_per_call": 1573.6,
+      "run_s_mean": 713.1
+    },
+    "main/a-claude-C": {
+      "runs": 15,
+      "usd": 18.6768,
+      "usd_per_run": 1.2451,
+      "api_calls": 37051,
+      "calls_per_run": 2470.1,
+      "dispatch_latency_ms_per_call": 1402.7,
+      "run_s_mean": 3500.5
+    },
+    "main/s-claude-haiku-B": {
+      "runs": 30,
+      "usd": 1.8172,
+      "usd_per_run": 0.0606,
+      "api_calls": 2709,
+      "calls_per_run": 90.3,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 235.0
+    },
+    "main/s-claude-haiku-C": {
+      "runs": 30,
+      "usd": 0.4658,
+      "usd_per_run": 0.0155,
+      "api_calls": 866,
+      "calls_per_run": 28.9,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 85.7
+    },
+    "exploratory/s-claude-sonnet-C": {
+      "runs": 10,
+      "usd": 2.7024,
+      "usd_per_run": 0.2702,
+      "api_calls": 316,
+      "calls_per_run": 31.6,
+      "dispatch_latency_ms_per_call": null,
+      "run_s_mean": 93.4
+    }
+  },
+  "reason_examples": {
+    "B": [
+      {
+        "seed": 300,
+        "sim_time": 140.1,
+        "switch": "press-2 -> press-A",
+        "reason": "press-A has two open tasks on a single cell while press-B has one waiting task across two idle-capable cells, so rebalancing press-2 to press-A should reduce the bottleneck."
+      },
+      {
+        "seed": 300,
+        "sim_time": 1207.1,
+        "switch": "press-2 -> press-B",
+        "reason": "Press-B has a queue of waiting tasks on one cell while press-A has no queued work, so moving press-2 to press-B should add needed capacity."
+      },
+      {
+        "seed": 301,
+        "sim_time": 142.0,
+        "switch": "press-2 -> press-A",
+        "reason": "Press-A is the bottleneck with two open press-A tasks while no press-B tasks are open, so idle press-2 should move to press-A."
+      },
+      {
+        "seed": 301,
+        "sim_time": 336.4,
+        "switch": "press-2 -> press-B",
+        "reason": "Press-B demand is queued (prodB-00008 and prodB-00009) while press-A has no open tasks and press-2 is idle, and press-1 keeps press-A coverage."
+      }
+    ],
+    "C": [
+      {
+        "seed": 300,
+        "sim_time": 182.2,
+        "switch": "app-2 -> worker",
+        "reason": "Worker-1 is fully reserved with two batch tasks queued, while app demand is light (only one waiting app step), so adding a worker cell should reduce completion time."
+      },
+      {
+        "seed": 300,
+        "sim_time": 333.7,
+        "switch": "app-2 -> app",
+        "reason": "Many READY worker batch tasks are queued while app/cache-bound rhit and write tasks pile up waiting on app capacity, so converting app-2 from worker to app should relieve the app bottleneck despite the changeover cost."
+      },
+      {
+        "seed": 301,
+        "sim_time": 63.1,
+        "switch": "app-2 -> worker",
+        "reason": "Four worker tasks are waiting on only two busy worker slots, while app load is light with app-1 still available."
+      },
+      {
+        "seed": 301,
+        "sim_time": 213.3,
+        "switch": "app-2 -> app",
+        "reason": "Three app tasks are ready while app-1 is the only app cell and it is busy, and app-2 is idle as a worker with no open worker tasks."
+      }
+    ]
+  }
+}

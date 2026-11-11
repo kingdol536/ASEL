@@ -22,7 +22,7 @@ from asel.core.events import Event
 from asel.evaluation.bottleneck import structure_metrics
 from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.5"  # 0.2 대체 제안 분리 / 0.3 병목 / 0.4 비우는 중 용량 / 0.5 묶음 완료=전체 작업, 취소, 목표 구간
+EVALUATOR_VERSION = "eval-0.6"  # 0.2 대체 제안 분리 / 0.3 병목 / 0.4 비우는 중 용량 / 0.5 묶음 완료=전체 작업, 취소, 목표 구간 / 0.6 구조 제어 주체의 제안·비용
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 
@@ -139,14 +139,14 @@ def objective_segments(events) -> list[dict]:
     return out
 
 
-def decision_metrics(events, policy_actor: str | None) -> dict:
+def decision_metrics(events, policy_actor: str | None, prefix: str = "policy.") -> dict:
     """정책 자신의 제안과, 정책이 실패해 대체 규칙(FIFO)이 낸 제안(reason == 'fallback')을 나눠 센다.
     무효 제안 비율은 정책 자신의 제안만으로 계산한다 (대체 제안은 항상 유효해 비율을 희석하므로)."""
     own = own_rej = fb = fb_rej = 0
     for e in events:
         if policy_actor and e.actor_id != policy_actor:
             continue
-        if not (e.actor_id or "").startswith("policy."):
+        if not (e.actor_id or "").startswith(prefix):
             continue
         if e.event_type not in ("ActionProposed", "ActionRejected"):
             continue
@@ -200,9 +200,12 @@ def evaluate_run(run_dir: Path) -> dict:
 
     decisions = usage.get("decisions") or 0
     n_fallback = sum((usage.get("fallbacks") or {}).values())
+    spol = manifest.get("structure_policy") or {}
+    s_usage = spol.get("usage") or {}
+    s_calls_made = s_usage.get("llm_decisions", 0) + sum((s_usage.get("fallbacks") or {}).values())
     return {
         "evaluator_version": EVALUATOR_VERSION,
-        "experiment": "EXP-001",
+        "experiment": (manifest.get("extra") or {}).get("experiment"),  # 실행 manifest 의 실험 이름 (없으면 null)
         "run_id": manifest.get("run_id"),
         "scenario_id": manifest.get("scenario_id"),
         "seed": manifest.get("seed"),
@@ -223,6 +226,15 @@ def evaluate_run(run_dir: Path) -> dict:
         "policy_decisions": decisions,
         "fallback_rate": (n_fallback / decisions) if decisions else None,
         "fallbacks": usage.get("fallbacks", {}),
+        "structure_control": {
+            "decisions": decision_metrics(public, spol.get("actor_id"), prefix="structure.") if spol.get("actor_id") else None,
+            "cost": {k: s_usage.get(k) for k in ("model", "api_calls", "cache_hits", "input_tokens", "output_tokens",
+                                                   "usd_estimate", "usd_charged_unknown", "latency_ms_total",
+                                                   "served_models") if k in s_usage},
+            "llm_decisions": s_usage.get("llm_decisions"),
+            "fallbacks": s_usage.get("fallbacks", {}),
+            "fallback_rate": (sum((s_usage.get("fallbacks") or {}).values()) / s_calls_made) if s_calls_made else None,
+        },
         "safety_boundary": {
             "invariant_violations": len(violations),
             "hidden_keys_in_public_log": leaked,
@@ -247,6 +259,7 @@ EVAL_COLUMNS = [
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
     "reconf_completed", "draining_s_total", "changeover_s_total", "lost_capacity_s",
     "bottleneck_shifts", "bottleneck_seq",
+    "s_proposals", "s_invalid_rate", "s_fallback_rate", "s_api_calls", "s_usd_estimate",
 ]
 
 
@@ -273,4 +286,15 @@ def eval_row(ev: dict) -> dict:
         "lost_capacity_s": ev["structure"]["lost_capacity_s"],
         "bottleneck_shifts": ev["structure"]["bottleneck_shifts"],
         "bottleneck_seq": "".join(x[:2] if x != "-" else "-" for x in ev["structure"]["bottleneck_by_window"]),
+        **_structure_cols(ev.get("structure_control") or {}),
+    }
+
+
+def _structure_cols(sc: dict) -> dict:
+    d = sc.get("decisions") or {}
+    cost = sc.get("cost") or {}
+    return {
+        "s_proposals": d.get("proposals", ""), "s_invalid_rate": d.get("invalid_proposal_rate", ""),
+        "s_fallback_rate": sc.get("fallback_rate", ""), "s_api_calls": cost.get("api_calls", ""),
+        "s_usd_estimate": cost.get("usd_estimate", ""),
     }

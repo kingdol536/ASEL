@@ -1,0 +1,578 @@
+{
+  "excluded_budget_runs": {},
+  "hypotheses": {
+    "H1-B": {
+      "n": 30,
+      "invalid_rate": 0.00012062726176115802,
+      "fallback_rate": 0.00014803849000740192,
+      "verdict": "지지"
+    },
+    "H1-C": {
+      "n": 15,
+      "invalid_rate": 0.0002128817087305154,
+      "fallback_rate": 0.00021591859868829453,
+      "verdict": "지지"
+    },
+    "H2-B": {
+      "n": 30,
+      "a": "A-fifo",
+      "b": "A-claude",
+      "metric": "flow_mean_s",
+      "mean_a": 330.1557943359837,
+      "mean_b": 335.5663546368647,
+      "mean_diff": 5.410560300880974,
+      "ci95": [
+        3.5120178385967344,
+        7.343694324063572
+      ],
+      "min_diff": -5.885369082087493,
+      "max_diff": 20.113838769016922,
+      "margin": 33.015579433598376,
+      "verdict": "지지"
+    },
+    "H2-C": {
+      "n": 15,
+      "a": "A-fifo",
+      "b": "A-claude",
+      "metric": "orders_cancelled",
+      "mean_a": 29.466666666666665,
+      "mean_b": 23.133333333333333,
+      "mean_diff": -6.333333333333333,
+      "ci95": [
+        -8.933333333333334,
+        -3.933333333333333
+      ],
+      "min_diff": -16.0,
+      "max_diff": 0.0,
+      "margin": 2.9466666666666668,
+      "verdict": "지지"
+    },
+    "H3": {
+      "n": 30,
+      "a": "S-p1",
+      "b": "S-claude-haiku",
+      "metric": "orders_cancelled",
+      "mean_a": 124.76666666666667,
+      "mean_b": 184.36666666666667,
+      "mean_diff": 59.6,
+      "ci95": [
+        44.36666666666667,
+        75.7
+      ],
+      "min_diff": -5.0,
+      "max_diff": 168.0,
+      "verdict": "반증",
+      "structure_fallback_rate": 0.0013333333333333333
+    },
+    "H4": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-claude-haiku",
+      "metric": "orders_cancelled",
+      "mean_a": 27.1,
+      "mean_b": 184.36666666666667,
+      "mean_diff": 157.26666666666668,
+      "ci95": [
+        142.7,
+        170.53333333333333
+      ],
+      "min_diff": 34.0,
+      "max_diff": 235.0,
+      "margin": 2.7100000000000004,
+      "verdict": "반증",
+      "structure_fallback_rate": 0.0013333333333333333
+    },
+    "H5": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-claude-haiku",
+      "metric": "flow_mean_s",
+      "mean_a": 330.1557943359837,
+      "mean_b": 276.8310703293759,
+      "mean_diff": -53.32472400660774,
+      "ci95": [
+        -67.24192953155759,
+        -40.08640813957873
+      ],
+      "min_diff": -137.78634721424214,
+      "max_diff": -2.132977637117108,
+      "verdict": "지지",
+      "structure_fallback_rate": 0.0
+    },
+    "H6": {
+      "by_env": {
+        "B": {
+          "n": 0,
+          "verdict": "판정 불가 (N<10)",
+          "sonnet_fallback_rate": null
+        },
+        "C": {
+          "n": 0,
+          "verdict": "판정 불가 (N<10)",
+          "sonnet_fallback_rate": null
+        }
+      },
+      "verdict": "판정 불가"
+    }
+  },
+  "arms": {
+    "B:A-claude": {
+      "n": 30,
+      "flow_mean_s": 335.5663546368647,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.8718954785286424,
+      "flow_p95_s": 562.8185349941493,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 3.066666666666667,
+      "usd_total": 9.26403,
+      "boundary_all_ok": true
+    },
+    "B:A-fifo": {
+      "n": 30,
+      "flow_mean_s": 330.1557943359837,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.8768053484338824,
+      "flow_p95_s": 564.9663833457514,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 2.966666666666667,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "B:A-order-age": {
+      "n": 30,
+      "flow_mean_s": 329.8954493136436,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.8766150474550186,
+      "flow_p95_s": 544.5055163267476,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 3.0,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "B:S-claude-haiku": {
+      "n": 30,
+      "flow_mean_s": 276.8310703293759,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.9169102290562692,
+      "flow_p95_s": 447.8219912612727,
+      "reconf_completed": 6.233333333333333,
+      "lost_capacity_s": 567.8735453966158,
+      "bottleneck_shifts": 4.933333333333334,
+      "usd_total": 1.817182,
+      "boundary_all_ok": true
+    },
+    "B:S-p0": {
+      "n": 30,
+      "flow_mean_s": 330.1557943359837,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.8768053484338824,
+      "flow_p95_s": 564.9663833457514,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 2.966666666666667,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "B:S-p1": {
+      "n": 30,
+      "flow_mean_s": 301.9278708347072,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.9089790482928357,
+      "flow_p95_s": 488.9822660989861,
+      "reconf_completed": 0.6666666666666666,
+      "lost_capacity_s": 62.60687516672212,
+      "bottleneck_shifts": 4.4,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "B:S-p2": {
+      "n": 30,
+      "flow_mean_s": 293.8664905288057,
+      "orders_cancelled": 0.0,
+      "completion_rate": 0.9132077070878885,
+      "flow_p95_s": 473.0899561287735,
+      "reconf_completed": 0.9,
+      "lost_capacity_s": 81.0,
+      "bottleneck_shifts": 4.8,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "C:A-claude": {
+      "n": 15,
+      "flow_mean_s": 22.854793149295066,
+      "orders_cancelled": 23.133333333333333,
+      "completion_rate": 0.946736607075495,
+      "flow_p95_s": 148.02135865848808,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 0.0,
+      "usd_total": 18.676785,
+      "boundary_all_ok": true
+    },
+    "C:A-fifo": {
+      "n": 30,
+      "flow_mean_s": 22.462473067641344,
+      "orders_cancelled": 27.1,
+      "completion_rate": 0.9471259409009423,
+      "flow_p95_s": 166.27944562886123,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 0.0,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "C:A-order-age": {
+      "n": 30,
+      "flow_mean_s": 22.34209815584928,
+      "orders_cancelled": 18.833333333333332,
+      "completion_rate": 0.9562890093497565,
+      "flow_p95_s": 163.03236063957004,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 0.0,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "C:S-claude-haiku": {
+      "n": 30,
+      "flow_mean_s": 26.119993249435158,
+      "orders_cancelled": 184.36666666666667,
+      "completion_rate": 0.7833288345582706,
+      "flow_p95_s": 207.31822173345492,
+      "reconf_completed": 8.033333333333333,
+      "lost_capacity_s": 496.8689270594307,
+      "bottleneck_shifts": 1.1,
+      "usd_total": 0.46585,
+      "boundary_all_ok": true
+    },
+    "C:S-p0": {
+      "n": 30,
+      "flow_mean_s": 22.462473067641344,
+      "orders_cancelled": 27.1,
+      "completion_rate": 0.9471259409009423,
+      "flow_p95_s": 166.27944562886123,
+      "reconf_completed": 0.0,
+      "lost_capacity_s": 0.0,
+      "bottleneck_shifts": 0.0,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "C:S-p1": {
+      "n": 30,
+      "flow_mean_s": 24.42849882684096,
+      "orders_cancelled": 124.76666666666667,
+      "completion_rate": 0.8532749259806003,
+      "flow_p95_s": 200.18211549996167,
+      "reconf_completed": 2.7333333333333334,
+      "lost_capacity_s": 164.61419414211215,
+      "bottleneck_shifts": 0.26666666666666666,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    },
+    "C:S-p2": {
+      "n": 30,
+      "flow_mean_s": 22.009146599126534,
+      "orders_cancelled": 166.03333333333333,
+      "completion_rate": 0.8097887256243264,
+      "flow_p95_s": 164.25212321164446,
+      "reconf_completed": 1.4,
+      "lost_capacity_s": 87.28414269407797,
+      "bottleneck_shifts": 1.4666666666666666,
+      "usd_total": 0,
+      "boundary_all_ok": true
+    }
+  },
+  "exploratory": {
+    "B:S-p2-vs-S-claude-haiku:flow_mean_s": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "flow_mean_s",
+      "mean_a": 293.8664905288057,
+      "mean_b": 276.8310703293759,
+      "mean_diff": -17.035420199429677,
+      "ci95": [
+        -21.27053781904274,
+        -13.026369863381044
+      ],
+      "min_diff": -46.980569924414056,
+      "max_diff": 2.7195190892848586
+    },
+    "B:S-p2-vs-S-claude-haiku:orders_cancelled": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "orders_cancelled",
+      "mean_a": 0.0,
+      "mean_b": 0.0,
+      "mean_diff": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "min_diff": 0.0,
+      "max_diff": 0.0
+    },
+    "B:S-p2-vs-S-claude-haiku:completion_rate": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "completion_rate",
+      "mean_a": 0.9132077070878885,
+      "mean_b": 0.9169102290562692,
+      "mean_diff": 0.0037025219683807418,
+      "ci95": [
+        0.000990099009900991,
+        0.007099240379769197
+      ],
+      "min_diff": 0.0,
+      "max_diff": 0.034482758620689724
+    },
+    "B:S-p0-vs-S-p1:flow_mean_s": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "flow_mean_s",
+      "mean_a": 330.1557943359837,
+      "mean_b": 301.9278708347072,
+      "mean_diff": -28.2279235012765,
+      "ci95": [
+        -41.302613637409515,
+        -16.235696452471498
+      ],
+      "min_diff": -121.21671828117883,
+      "max_diff": 0.0
+    },
+    "B:S-p0-vs-S-p1:orders_cancelled": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "orders_cancelled",
+      "mean_a": 0.0,
+      "mean_b": 0.0,
+      "mean_diff": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "min_diff": 0.0,
+      "max_diff": 0.0
+    },
+    "B:S-p0-vs-S-p1:completion_rate": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "completion_rate",
+      "mean_a": 0.8768053484338824,
+      "mean_b": 0.9089790482928357,
+      "mean_diff": 0.032173699858953464,
+      "ci95": [
+        0.020158459317264076,
+        0.045410411985110345
+      ],
+      "min_diff": 0.0,
+      "max_diff": 0.1151079136690647
+    },
+    "B:S-p0-vs-S-claude-sonnet:flow_mean_s": {
+      "n": 0
+    },
+    "B:S-p0-vs-S-claude-sonnet:orders_cancelled": {
+      "n": 0
+    },
+    "B:S-p0-vs-S-claude-sonnet:completion_rate": {
+      "n": 0
+    },
+    "B:A-order-age-vs-A-claude:flow_mean_s": {
+      "n": 30,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "flow_mean_s",
+      "mean_a": 329.8954493136436,
+      "mean_b": 335.5663546368647,
+      "mean_diff": 5.6709053232210325,
+      "ci95": [
+        3.451029732546802,
+        8.053267069226802
+      ],
+      "min_diff": -4.760281523096921,
+      "max_diff": 23.094336059111924
+    },
+    "B:A-order-age-vs-A-claude:orders_cancelled": {
+      "n": 30,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "orders_cancelled",
+      "mean_a": 0.0,
+      "mean_b": 0.0,
+      "mean_diff": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ],
+      "min_diff": 0.0,
+      "max_diff": 0.0
+    },
+    "B:A-order-age-vs-A-claude:completion_rate": {
+      "n": 30,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "completion_rate",
+      "mean_a": 0.8766150474550186,
+      "mean_b": 0.8718954785286424,
+      "mean_diff": -0.004719568926376331,
+      "ci95": [
+        -0.007457640597502272,
+        -0.002123263110626931
+      ],
+      "min_diff": -0.01834862385321101,
+      "max_diff": 0.008849557522123908
+    },
+    "C:S-p2-vs-S-claude-haiku:flow_mean_s": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "flow_mean_s",
+      "mean_a": 22.009146599126534,
+      "mean_b": 26.119993249435158,
+      "mean_diff": 4.110846650308627,
+      "ci95": [
+        2.984525326550414,
+        5.23014911648313
+      ],
+      "min_diff": -2.8519752392630338,
+      "max_diff": 9.599735934654607
+    },
+    "C:S-p2-vs-S-claude-haiku:orders_cancelled": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "orders_cancelled",
+      "mean_a": 166.03333333333333,
+      "mean_b": 184.36666666666667,
+      "mean_diff": 18.333333333333332,
+      "ci95": [
+        4.366666666666666,
+        33.0
+      ],
+      "min_diff": -44.0,
+      "max_diff": 126.0
+    },
+    "C:S-p2-vs-S-claude-haiku:completion_rate": {
+      "n": 30,
+      "a": "S-p2",
+      "b": "S-claude-haiku",
+      "metric": "completion_rate",
+      "mean_a": 0.8097887256243264,
+      "mean_b": 0.7833288345582706,
+      "mean_diff": -0.02645989106605572,
+      "ci95": [
+        -0.043081643102568984,
+        -0.010461518130633948
+      ],
+      "min_diff": -0.14125560538116588,
+      "max_diff": 0.04477611940298509
+    },
+    "C:S-p0-vs-S-p1:flow_mean_s": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "flow_mean_s",
+      "mean_a": 22.462473067641344,
+      "mean_b": 24.42849882684096,
+      "mean_diff": 1.9660257591996162,
+      "ci95": [
+        0.481510606032818,
+        3.608962223934623
+      ],
+      "min_diff": -3.6921091492558453,
+      "max_diff": 15.682944599198208
+    },
+    "C:S-p0-vs-S-p1:orders_cancelled": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "orders_cancelled",
+      "mean_a": 27.1,
+      "mean_b": 124.76666666666667,
+      "mean_diff": 97.66666666666667,
+      "ci95": [
+        81.06666666666666,
+        113.66666666666667
+      ],
+      "min_diff": 0.0,
+      "max_diff": 173.0
+    },
+    "C:S-p0-vs-S-p1:completion_rate": {
+      "n": 30,
+      "a": "S-p0",
+      "b": "S-p1",
+      "metric": "completion_rate",
+      "mean_a": 0.9471259409009423,
+      "mean_b": 0.8532749259806003,
+      "mean_diff": -0.09385101492034195,
+      "ci95": [
+        -0.11036963792190795,
+        -0.07699233551693972
+      ],
+      "min_diff": -0.1704288939051919,
+      "max_diff": 0.0
+    },
+    "C:S-p0-vs-S-claude-sonnet:flow_mean_s": {
+      "n": 0
+    },
+    "C:S-p0-vs-S-claude-sonnet:orders_cancelled": {
+      "n": 0
+    },
+    "C:S-p0-vs-S-claude-sonnet:completion_rate": {
+      "n": 0
+    },
+    "C:A-order-age-vs-A-claude:flow_mean_s": {
+      "n": 15,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "flow_mean_s",
+      "mean_a": 22.747750928807267,
+      "mean_b": 22.854793149295066,
+      "mean_diff": 0.10704222048779559,
+      "ci95": [
+        0.02719704995384286,
+        0.1755558523537374
+      ],
+      "min_diff": -0.22951766962184905,
+      "max_diff": 0.3094716818408969
+    },
+    "C:A-order-age-vs-A-claude:orders_cancelled": {
+      "n": 15,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "orders_cancelled",
+      "mean_a": 20.6,
+      "mean_b": 23.133333333333333,
+      "mean_diff": 2.533333333333333,
+      "ci95": [
+        0.9333333333333333,
+        4.2
+      ],
+      "min_diff": -3.0,
+      "max_diff": 9.0
+    },
+    "C:A-order-age-vs-A-claude:completion_rate": {
+      "n": 15,
+      "a": "A-order-age",
+      "b": "A-claude",
+      "metric": "completion_rate",
+      "mean_a": 0.949707121153165,
+      "mean_b": 0.946736607075495,
+      "mean_diff": -0.002970514077669928,
+      "ci95": [
+        -0.004867279364290729,
+        -0.0011464070985805449
+      ],
+      "min_diff": -0.009708737864077666,
+      "max_diff": 0.003278688524590234
+    }
+  }
+}

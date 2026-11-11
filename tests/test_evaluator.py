@@ -107,3 +107,14 @@ def test_reevaluate_batch_reproduces_eval_csv(tmp_path):
     bd = run_batch([str(SURGE)], [0, 1], tmp_path, policies=["fifo", "order-age"])
     before = (bd / "batch_eval.csv").read_text(encoding="utf-8")
     assert reevaluate_batch(bd).read_text(encoding="utf-8") == before
+
+
+def test_evaluation_takes_experiment_name_from_manifest(tmp_path):
+    """평가 결과의 실험 이름은 실행 manifest 의 extra.experiment 에서 온다 (예전에는 항상 EXP-001 로 적혔다)."""
+    from asel.runner import write_run_detailed
+
+    sc = load_scenario(ROOT / "scenarios" / "warehouse-small-a.yaml")
+    labelled, _ = write_run_detailed(run_scenario(sc, seed=0), tmp_path / "a", extra={"experiment": "EXP-X"})
+    plain = write_run(run_scenario(sc, seed=0), tmp_path / "b")
+    assert evaluate_run(labelled)["experiment"] == "EXP-X"
+    assert evaluate_run(plain)["experiment"] is None

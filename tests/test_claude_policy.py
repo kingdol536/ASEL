@@ -208,7 +208,9 @@ def test_api_errors_fall_back(tmp_path, exc, reason):
 
 @pytest.mark.parametrize("kw,reason", [({"stop_reason": "refusal"}, "stop_refusal"),
                                        ({"stop_reason": "max_tokens"}, "stop_max_tokens"),
-                                       ({"text_override": "not json"}, "bad_output")])
+                                       ({"text_override": "not json"}, "bad_output"),
+                                       ({"text_override": "[]"}, "bad_output"),  # JSON 이지만 객체 아님
+                                       ({"text_override": '"assignments"'}, "bad_output")])
 def test_bad_responses_fall_back(tmp_path, kw, reason):
     res = run_scenario(SHORT, seed=8, policy=_policy(tmp_path, FakeClient(**kw)))
     assert res.policy_usage["fallbacks"].get(reason, 0) > 0

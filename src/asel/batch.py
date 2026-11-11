@@ -67,22 +67,16 @@ def parse_seeds(spec: str) -> list[int]:
     return out
 
 
-def _one(args: tuple) -> tuple[dict, float, int, dict]:
-    scenario_path, seed, runs_root, check, code, policy, structure, extra = args
-    sc = load_scenario(scenario_path)
-    t0 = time.perf_counter()
-    res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy, structure_policy=structure)
-    sim_s = time.perf_counter() - t0
-    run_dir, m = write_run_detailed(res, Path(runs_root), code=code, extra=extra)
-    ev = write_evaluation(run_dir)  # 실행이 끝난 뒤 평가 (정책은 평가 결과를 보지 않는다)
+def _summary_row(m: dict) -> dict:
+    """실행 manifest 로 batch_summary.csv 한 행을 만든다 (실행 직후와 중단된 배치 마무리에서 같은 값)."""
     s = m["summary"]
     by = s["tasks_by_status"]
-    row = {
-        "scenario_id": sc.scenario_id,
-        "policy": res.policy_name,
-        "structure": res.structure_name or "",
-        "seed": seed,
-        "run_id": res.run_id,
+    return {
+        "scenario_id": m["scenario_id"],
+        "policy": m["policy"]["name"],
+        "structure": (m.get("structure_policy") or {}).get("name") or "",
+        "seed": m["seed"],
+        "run_id": m["run_id"],
         "events": s["events"],
         "world_version": s["world_version"],
         "tasks_completed": by.get("COMPLETED", 0),
@@ -95,7 +89,17 @@ def _one(args: tuple) -> tuple[dict, float, int, dict]:
         "events_sha256": m["events_sha256"],
         "private_events_sha256": m["private_events_sha256"],
     }
-    return row, sim_s, s["events"], eval_row(ev)
+
+
+def _one(args: tuple) -> tuple[dict, float, int, dict]:
+    scenario_path, seed, runs_root, check, code, policy, structure, extra = args
+    sc = load_scenario(scenario_path)
+    t0 = time.perf_counter()
+    res = run_scenario(sc, seed=seed, check_invariants=check, policy=policy, structure_policy=structure)
+    sim_s = time.perf_counter() - t0
+    run_dir, m = write_run_detailed(res, Path(runs_root), code=code, extra=extra)
+    ev = write_evaluation(run_dir)  # 실행이 끝난 뒤 평가 (정책은 평가 결과를 보지 않는다)
+    return _summary_row(m), sim_s, m["summary"]["events"], eval_row(ev)
 
 
 def summary_csv(rows: list[dict], columns: list[str] = COLUMNS) -> str:
@@ -120,6 +124,56 @@ def reevaluate_batch(batch_dir: Path) -> Path:
     out = batch_dir / "batch_eval.csv"
     out.write_text(summary_csv(rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
     return out
+
+
+def finalize_interrupted_batch(batch_dir: Path, planned_seeds: list[int], note: str) -> Path:
+    """중간에 멈춘 배치(batch.json 없음)를 끝난 실행만으로 마무리한다. 시뮬레이션은 다시 하지 않는다.
+
+    실행 폴더는 실행이 끝난 뒤에만 쓰이므로 manifest.json 이 있는 실행만 끝난 것으로 본다.
+    행 순서: (scenario_id, policy, structure, seed). batch.json 에 중단 사실과 빠진 시드를 남긴다.
+    """
+    if (batch_dir / "batch.json").exists():
+        raise ValueError(f"{batch_dir} already has batch.json (not interrupted)")
+    run_dirs = [p.parent for p in (batch_dir / "runs").glob("*/*/manifest.json")]
+    if not run_dirs:
+        raise ValueError(f"no finished runs in {batch_dir}")
+    done = []
+    for d in run_dirs:
+        m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
+        done.append((_summary_row(m), d, m))
+    codes = {json.dumps(m["code"], sort_keys=True) for _, _, m in done}
+    if len(codes) != 1:  # 아무것도 쓰기 전에 검사한다
+        raise ValueError(f"runs in {batch_dir} come from different code revisions")
+    done.sort(key=lambda x: (x[0]["scenario_id"], x[0]["policy"], x[0]["structure"], x[0]["seed"]))
+    rows = [r for r, _, _ in done]
+    eval_rows = [eval_row(write_evaluation(d)) for _, d, _ in done]
+    (batch_dir / "batch_summary.csv").write_text(summary_csv(rows), encoding="utf-8", newline="\n")
+    (batch_dir / "batch_eval.csv").write_text(summary_csv(eval_rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
+
+    completed = sorted({r["seed"] for r in rows})
+    first = done[0][2]
+    info = {
+        "batch_id": batch_dir.name,
+        "interrupted": True,
+        "note": note,
+        "planned_seeds": planned_seeds,
+        "completed_seeds": completed,
+        "missing_seeds": sorted(set(planned_seeds) - set(completed)),
+        "scenarios": sorted({r["scenario_id"] for r in rows}),
+        "policies": sorted({r["policy"] for r in rows}),
+        "structure_policies": [s or None for s in sorted({r["structure"] for r in rows})],  # run_batch 처럼 없음 = null
+        "extra": first.get("extra"),
+        "n_runs": len(rows),
+        "throughput": None,
+        "invariant_violations_total": sum(r["invariant_violations"] for r in rows),
+        "safety_boundary_all_ok": all(e["boundary_ok"] for e in eval_rows),
+        "code": first["code"],
+        "environment": first.get("environment"),
+    }
+    (batch_dir / "batch.json").write_text(
+        json.dumps(info, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n"
+    )
+    return batch_dir
 
 
 def run_batch(

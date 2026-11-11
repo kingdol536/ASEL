@@ -118,7 +118,29 @@ STRUCTURE_POLICIES = {
 }
 
 
+# Claude 구조 제어 (EXP-003 #45). 모델별 이름. 모드(replay/record)·예산은 배정 정책과 같은 환경변수를 쓴다
+CLAUDE_STRUCTURE_MODELS = {"claude-haiku": "claude-haiku-5-5", "claude-sonnet": "claude-sonnet-5-5"}
+
+
+def _claude_structure(name: str):
+    import os
+
+    from asel.agents.claude_policy import BudgetGuard, default_llm_dir
+    from asel.agents.claude_structure import ClaudeStructurePolicy
+
+    guard = BudgetGuard(
+        default_llm_dir() / "ledger.json",
+        usd_cap=float(os.environ.get("ASEL_LLM_BUDGET_USD", "55")),
+        call_cap=int(os.environ["ASEL_LLM_CALL_CAP"]) if os.environ.get("ASEL_LLM_CALL_CAP") else None,
+    )
+    return ClaudeStructurePolicy(model=CLAUDE_STRUCTURE_MODELS[name], name=name,
+                                 mode=os.environ.get("ASEL_LLM_MODE", "replay"), guard=guard)
+
+
 def make_structure_policy(name: str):
+    if name in CLAUDE_STRUCTURE_MODELS:
+        return _claude_structure(name)
     if name not in STRUCTURE_POLICIES:
-        raise ValueError(f"unknown structure policy {name!r}; choose from {sorted(STRUCTURE_POLICIES)}")
+        raise ValueError(
+            f"unknown structure policy {name!r}; choose from {sorted(STRUCTURE_POLICIES) + sorted(CLAUDE_STRUCTURE_MODELS)}")
     return STRUCTURE_POLICIES[name]()

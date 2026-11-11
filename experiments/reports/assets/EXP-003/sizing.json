@@ -1,0 +1,66 @@
+{
+  "ledger_spent_after_pilot": 10.5968323,
+  "budget_R": 41.4031677,
+  "jobs": 6,
+  "deadline_utc": "2026-11-18T09:00:00+00:00",
+  "computed_utc": "2026-11-11T09:09:55+00:00",
+  "arms": {
+    "s-claude-haiku-B": {
+      "batch": "batch__20261111T074246897682Z",
+      "n": 2,
+      "usd_per_run": 0.0661505,
+      "wall_s_per_run": 253.745,
+      "N": 30,
+      "status": "confirmatory",
+      "seeds": "300-329"
+    },
+    "s-claude-haiku-C": {
+      "batch": "batch__20261111T074701475018Z",
+      "n": 2,
+      "usd_per_run": 0.01559,
+      "wall_s_per_run": 99.257,
+      "N": 30,
+      "status": "confirmatory",
+      "seeds": "300-329"
+    },
+    "a-claude-B": {
+      "batch": "batch__20261111T075445899406Z",
+      "n": 2,
+      "usd_per_run": 0.354314,
+      "wall_s_per_run": 736.585,
+      "N": 30,
+      "status": "confirmatory",
+      "seeds": "300-329"
+    },
+    "a-claude-C": {
+      "batch": "batch__20261111T080703282049Z",
+      "n": 2,
+      "usd_per_run": 1.2485629999999999,
+      "wall_s_per_run": 3756.942,
+      "N": 17,
+      "status": "confirmatory",
+      "seeds": "300-316"
+    },
+    "s-claude-sonnet-B": {
+      "batch": "batch__20261111T074841592492Z",
+      "n": 2,
+      "usd_per_run": 1.100787,
+      "wall_s_per_run": 250.87,
+      "N": 0,
+      "status": "skip (N<3)",
+      "seeds": null
+    },
+    "s-claude-sonnet-C": {
+      "batch": "batch__20261111T075253275485Z",
+      "n": 2,
+      "usd_per_run": 0.266401,
+      "wall_s_per_run": 111.875,
+      "N": 0,
+      "status": "skip (N<3)",
+      "seeds": null
+    }
+  },
+  "budget_left_after_plan": 0.23452050000000568,
+  "worker_seconds_needed": 96555.62400000001,
+  "worker_seconds_available": 3625224.4398720004
+}
