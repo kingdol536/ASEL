@@ -120,6 +120,13 @@ def _cell(state: WorldState, e) -> dict:
         d["mode_since"] = e.mode_since
         d["reconfig"] = {"options": [list(o) for o in e.reconfig["options"]],
                          "changeover_s": e.reconfig["changeover_s"]}
+    if e.space is not None:
+        d["ceiling_m"] = e.space["ceiling_m"]
+        # 이 셀이 가질 수 있는 역할 중 천장 높이를 넘는 것 (공개 설계 정보)
+        d["blocked_roles"] = sorted(
+            c for c in {x for o in (e.reconfig or {}).get("options", []) for x in o}
+            if float(state.capability_space.get(c, {}).get("height_m", 0.0)) > float(e.space["ceiling_m"])
+        )
     return d
 
 
@@ -198,6 +205,8 @@ def affordances(obs: Observation, permitted: tuple[str, ...]) -> list[ActionSpec
                     continue
                 if base - offered_after(obs.cells, (c["id"], target)):
                     continue  # 마지막 제공 셀을 없애는 전환은 후보에서 뺀다 (검증기도 거절)
+                if set(target) & set(c.get("blocked_roles", [])):
+                    continue  # 3D 높이 제약으로 불가능한 전환 (검증기도 거절)
                 cands.append({"entity": c["id"], "capabilities": target})
         out.append(
             ActionSpec(

@@ -60,9 +60,11 @@ def apply_event(state: WorldState, ev: Event) -> None:
                 capabilities=tuple(e["capabilities"]),
                 properties=dict(e.get("properties", {})),
                 reconfig=e.get("reconfig"),
+                space=e.get("space"),
             )
         for r in p["relations"]:
             state.relations.append(Relation(source=r["source"], target=r["target"], kind=r["kind"]))
+        state.capability_space = dict(p.get("capability_space", {}))
         for r in p["resources"]:
             state.resources[r["id"]] = Resource(id=r["id"], capacity=int(r["capacity"]))
 
@@ -231,16 +233,14 @@ class World:
         entities: list[dict],
         relations: list[dict],
         resources: list[dict],
+        capability_space: dict | None = None,
     ) -> None:
         if self._initialized:
             raise RuntimeError("already initialized")
-        self._emit(
-            ENV_ACTOR,
-            EventType.WORLD_INITIALIZED,
-            None,
-            {"entities": entities, "relations": relations, "resources": resources},
-            version=0,
-        )
+        payload = {"entities": entities, "relations": relations, "resources": resources}
+        if capability_space:
+            payload["capability_space"] = capability_space  # 공간 요구가 있는 세계에서만 (이전 사건 형식 유지)
+        self._emit(ENV_ACTOR, EventType.WORLD_INITIALIZED, None, payload, version=0)
         self._initialized = True
 
     def advance_to(self, t: float) -> None:
@@ -335,6 +335,16 @@ class World:
         missing = [x for x in ids if x not in self.state.tasks]
         return [f"cancel_tasks: unknown tasks {missing[:3]}"] if missing else []
 
+    def clearance_violations(self, ent: Entity, caps) -> list[str]:
+        """천장 높이보다 높은 공간이 필요한 역할 목록. 공간 정보가 없으면 제약 없음."""
+        if ent.space is None:
+            return []
+        ceiling = float(ent.space.get("ceiling_m", float("inf")))
+        return sorted(
+            c for c in caps
+            if float(self.state.capability_space.get(c, {}).get("height_m", 0.0)) > ceiling
+        )
+
     def offered_capabilities(self, override: tuple[str, tuple[str, ...]] | None = None) -> set[str]:
         """용량이 있는 셀이 (전환이 끝났을 때) 제공하게 될 capability 집합.
         전환 중이거나 작업을 비우는 셀은 목표 역할로 센다. 고장은 일시적이므로 세지 않는다."""
@@ -366,6 +376,10 @@ class World:
             return [f"request_reconfiguration: {list(target)} is not an option for {ent.id}"]
         if target == tuple(sorted(ent.capabilities)):
             return [f"request_reconfiguration: {ent.id} already has {list(target)}"]
+        short = self.clearance_violations(ent, target)
+        if short:
+            # 3D 고유 제약: 2D 배치로는 보이지 않는 높이 제약 (결정 0007 안 A)
+            return [f"request_reconfiguration: insufficient clearance at {ent.id} for {short}"]
         lost = self.offered_capabilities() - self.offered_capabilities((ent.id, target))
         if lost:
             # 교착 방지: 마지막 제공 셀의 역할을 빼면 그 capability 작업이 영원히 대기한다

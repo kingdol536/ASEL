@@ -34,6 +34,20 @@ class ReconfigSpec(_Strict):
         return self
 
 
+class SpaceSpec(_Strict):
+    """정적 3D 배치 (#40). 바닥 사각형 (x, y, width, depth) 과 그 자리의 천장 높이."""
+
+    x: float
+    y: float
+    width: PositiveFloat
+    depth: PositiveFloat
+    ceiling_m: PositiveFloat
+
+
+class CapabilitySpace(_Strict):
+    height_m: PositiveFloat
+
+
 class EntitySpec(_Strict):
     id: str = Field(min_length=1)
     type: str = Field(min_length=1)
@@ -41,6 +55,7 @@ class EntitySpec(_Strict):
     capacity: int = Field(ge=0)
     properties: dict = Field(default_factory=dict)
     reconfigurable: ReconfigSpec | None = None
+    space: SpaceSpec | None = None  # 0.4
 
     @model_validator(mode="after")
     def _current_is_option(self):
@@ -232,6 +247,7 @@ class Scenario(_Strict):
     constraints: list[ConstraintSpec] = Field(default_factory=list)
     objectives: list[ObjectiveSpec] = Field(default_factory=list)
     objective_schedule: list[ObjectiveChange] = Field(default_factory=list)  # 0.4
+    capability_space: dict[str, CapabilitySpace] = Field(default_factory=dict)  # 0.4, 역할별 공간 요구
     notes: str | None = None
 
     @model_validator(mode="after")
@@ -246,6 +262,18 @@ class Scenario(_Strict):
             raise ValueError("workload.flow / workload.mix require schema_version '0.4'")
         if self.schema_version != "0.4" and self.objective_schedule:
             raise ValueError("objective_schedule requires schema_version '0.4'")
+        if self.schema_version != "0.4" and (self.capability_space or any(e.space for e in self.entities)):
+            raise ValueError("space / capability_space require schema_version '0.4'")
+        # 3D 배치: 바닥 사각형이 겹치지 않고(점유), 시작 역할이 천장 높이 안에 들어간다
+        placed = [e for e in self.entities if e.space is not None]
+        for i, a in enumerate(placed):
+            for b in placed[i + 1:]:
+                sa, sb = a.space, b.space
+                if sa.x < sb.x + sb.width and sb.x < sa.x + sa.width and sa.y < sb.y + sb.depth and sb.y < sa.y + sa.depth:
+                    raise ValueError(f"footprints of {a.id} and {b.id} overlap")
+            for c in a.capabilities:
+                if c in self.capability_space and self.capability_space[c].height_m > a.space.ceiling_m:
+                    raise ValueError(f"{a.id}: role {c} does not fit under ceiling {a.space.ceiling_m} m")
         times = [o.at_s for o in self.objective_schedule]
         if times != sorted(times) or len(set(times)) != len(times):
             raise ValueError("objective_schedule times must be strictly increasing")
@@ -295,6 +323,12 @@ class Scenario(_Strict):
                 wl.pop(k, None)
         if not d.get("objective_schedule"):
             d.pop("objective_schedule", None)
+        if not d.get("capability_space"):
+            d.pop("capability_space", None)
+        if self.schema_version != "0.4":
+            for e in d["entities"]:
+                if e.get("space") is None:
+                    e.pop("space", None)
         # 정규 형식은 시나리오가 선언한 스키마 버전을 따른다: 그 버전 뒤에 생긴 항목은 넣지 않는다.
         # (0.3 에서 생긴 entities[].reconfigurable 이 0.1/0.2 시나리오 해시를 바꿔 EXP-001 run_id·사건 로그
         #  바이트 재현을 깬 회귀를 바로잡음 — M5 #35 재현성 점검에서 발견)

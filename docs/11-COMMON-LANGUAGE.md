@@ -24,6 +24,8 @@ graph LR
   WorldState -->|tasks| Task
   WorldState -->|relations| Relation
   WorldState -->|objective| objective
+  Entity -->|space| space
+  WorldState -->|capability_space| capability_space
 ```
 
 ## 부품 목록
@@ -32,7 +34,7 @@ graph LR
 
 셀·설비·작업장 같은 '일을 하는 곳'. 산업별 의미는 type 과 capabilities 로만 표현한다
 
-- 필드/값: `id`, `type`, `capabilities`, `properties`, `reconfig`, `mode`, `target_capabilities`, `mode_since`
+- 필드/값: `id`, `type`, `capabilities`, `properties`, `reconfig`, `space`, `mode`, `target_capabilities`, `mode_since`
 
 ### Resource
 
@@ -56,7 +58,7 @@ graph LR
 
 세계의 현재 상태. version(모든 변경), structure_version(구조 변경), 시각
 
-- 필드/값: `version`, `structure_version`, `objective`, `sim_time`, `entities`, `relations`, `resources`, `tasks`
+- 필드/값: `version`, `structure_version`, `objective`, `capability_space`, `sim_time`, `entities`, `relations`, `resources`, `tasks`
 
 ### TaskStatus
 
@@ -78,6 +80,14 @@ graph LR
 
 현재 운영 목표 {id, kind, params}. 공개 정보 — 채점식은 평가기 전용 (R-07 미결정, #38)
 
+### space (값)
+
+정적 3D 배치 {x, y, width, depth, ceiling_m} — 바닥 점유와 천장 높이 (#40, 결정 0007)
+
+### capability_space (값)
+
+역할별 공간 요구 {capability: {height_m}}. 천장보다 높은 역할로는 전환할 수 없다
+
 ## 관계
 
 | 출발 | 필드 | 도착 | 의미 |
@@ -98,6 +108,8 @@ graph LR
 | WorldState | `tasks` | Task | 세계에 있는 작업 |
 | WorldState | `relations` | Relation | 세계에 있는 연결 |
 | WorldState | `objective` | objective | 현재 운영 목표 |
+| Entity | `space` | space | 개체의 3D 배치 |
+| WorldState | `capability_space` | capability_space | 역할별 공간 요구 |
 
 ## 행동 (부품을 움직이는 동사)
 

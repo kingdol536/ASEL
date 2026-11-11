@@ -25,7 +25,7 @@ from asel.io.scenario import (
 )
 
 
-def world_init_payload(sc: Scenario) -> tuple[list[dict], list[dict], list[dict]]:
+def world_init_payload(sc: Scenario) -> tuple:
     entities = []
     for e in sc.entities:
         d = {"id": e.id, "type": e.type, "capabilities": list(e.capabilities), "properties": dict(e.properties)}
@@ -34,9 +34,13 @@ def world_init_payload(sc: Scenario) -> tuple[list[dict], list[dict], list[dict]
                 "options": [sorted(o) for o in e.reconfigurable.options],
                 "changeover_s": float(e.reconfigurable.changeover_s),
             }
+        if e.space is not None:
+            d["space"] = e.space.model_dump()
         entities.append(d)
     relations = [{"source": r.source, "target": r.target, "kind": r.kind} for r in sc.relations]
     resources = [{"id": e.id, "capacity": e.capacity} for e in sc.entities]
+    if sc.capability_space:
+        return entities, relations, resources, {k: v.model_dump() for k, v in sc.capability_space.items()}
     return entities, relations, resources
 
 

@@ -49,6 +49,13 @@ def check_invariants(state: WorldState) -> list[str]:
             v.append(f"entity {e.id}: normal mode with pending target")
         if e.mode != EntityMode.NORMAL and e.target_capabilities is None:
             v.append(f"entity {e.id}: {e.mode} without target")
+        # 3D 공간: 개체의 역할(과 전환 목표)이 그 자리 천장 높이 안에 들어간다 (#40)
+        if e.space is not None:
+            ceiling = float(e.space.get("ceiling_m", float("inf")))
+            for c in set(e.capabilities) | set(e.target_capabilities or ()):
+                h = float(state.capability_space.get(c, {}).get("height_m", 0.0))
+                if h > ceiling:
+                    v.append(f"entity {e.id}: role {c} needs {h} m > ceiling {ceiling} m")
 
     for t in state.tasks.values():
         preds = [state.tasks.get(p) for p in t.predecessors]
