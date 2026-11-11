@@ -152,7 +152,7 @@ class ObjectiveSpec(BaseModel):
 class Scenario(_Strict):
     schema_version: Literal["0.1", "0.2", "0.3"]
     scenario_id: str = Field(min_length=1, pattern=r"^[A-Za-z0-9._-]+$")
-    domain: Literal["warehouse_like"]
+    domain: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_.-]+$")  # 어댑터는 실행 시 레지스트리에서 고른다 (#33)
     seed: int
     sim_time_limit: PositiveFloat
     entities: list[EntitySpec] = Field(min_length=1)

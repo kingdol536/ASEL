@@ -137,3 +137,20 @@ class WarehouseWorkload:
             )
             prev = tid
         return actions, self._next_arrival(now)
+
+
+class WarehouseAdapter:
+    """환경 A 어댑터 (레지스트리 등록용)."""
+
+    name = "warehouse_like"
+
+    def world_init_payload(self, sc: Scenario):
+        return world_init_payload(sc)
+
+    def workload(self, sc: Scenario, seed: int) -> WarehouseWorkload:
+        return WarehouseWorkload(sc, seed)
+
+
+from asel.domains import register as _register  # noqa: E402
+
+_register(WarehouseAdapter())

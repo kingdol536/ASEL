@@ -12,7 +12,7 @@ from asel.core.events import SCHEMA_VERSION, Event, EventType
 from asel.core.invariants import check_invariants
 from asel.core.simulator import Simulator
 from asel.core.world import ENV_ACTOR, World
-from asel.domains.warehouse import WarehouseWorkload, world_init_payload
+from asel.domains import get_adapter
 from asel.io.eventlog import dumps_canonical, events_sha256, write_run_logs
 from asel.io.manifest import code_revision, environment_info
 from asel.io.scenario import Scenario
@@ -111,12 +111,13 @@ def run_scenario(
         PolicyRuntime(spol, actor_id=f"structure.{spol.name}", permitted=STRUCTURE_ACTIONS) if spol else None
     )
     world = World(run_id, grants=default_grants(runtime.actor_id, sruntime.actor_id if sruntime else None))
-    world.initialize(*world_init_payload(sc))
+    adapter = get_adapter(sc.domain)  # 도메인 어댑터 (#33)
+    world.initialize(*adapter.world_init_payload(sc))
     runtime.reset(run_id)
     if sruntime:
         sruntime.reset(run_id)
     deciders = [sruntime, runtime] if sruntime else runtime
-    sim = Simulator(world, WarehouseWorkload(sc, seed), deciders, check_invariants=check_invariants)
+    sim = Simulator(world, adapter.workload(sc, seed), deciders, check_invariants=check_invariants)
     sim.run(until=sc.sim_time_limit)
 
     finished = datetime.now(UTC).isoformat(timespec="seconds")
