@@ -11,8 +11,8 @@ from conftest import SCENARIO_A
 
 
 def test_warehouse_registered():
-    assert "warehouse_like" in registered_domains()
-    assert get_adapter("warehouse_like").name == "warehouse_like"
+    assert {"warehouse_like", "job_flow"} <= set(registered_domains())
+    assert get_adapter("warehouse_like") is get_adapter("job_flow")  # 물류 = 범용 흐름의 별칭
 
 
 def test_unknown_domain_fails_at_run_time_with_clear_message():

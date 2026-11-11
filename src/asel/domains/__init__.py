@@ -46,5 +46,5 @@ def _load_builtin() -> None:
     if "job_flow" not in _REGISTRY:
         from asel.domains.job_flow import JobFlowAdapter
 
-        register(JobFlowAdapter())
-    from asel.domains import warehouse  # noqa: F401
+        # 환경 A(물류)는 별도 코드 없이 범용 흐름 어댑터의 별칭이다 (#35)
+        register(JobFlowAdapter(), "warehouse_like")

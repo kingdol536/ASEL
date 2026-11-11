@@ -383,3 +383,19 @@ def test_ledger_survives_heavy_contention(tmp_path):
     assert all(o[0].strip() == "ok" for o in outs), [o[1][-300:] for o in outs]
     s = json.loads(ledger.read_text())
     assert s["calls"] == 2400 and s["usd_spent"] == pytest.approx(2.4)
+
+
+def test_prompt_versions_keep_old_recordings_and_neutral_prompt_has_no_industry_words(tmp_path):
+    from asel.agents.claude_policy import PROMPTS
+
+    assert ClaudePolicy(cache=ResponseCache(tmp_path), guard=BudgetGuard(tmp_path / "l", 1)).prompt_version == "v1-warehouse"
+    assert "warehouse" not in PROMPTS["v2-neutral"].lower()
+    with pytest.raises(ValueError):
+        ClaudePolicy(prompt_version="v9", cache=ResponseCache(tmp_path), guard=BudgetGuard(tmp_path / "l", 1))
+    # 버전이 다르면 요청(=캐시 키)이 달라 서로의 녹화를 쓰지 않는다
+    a = run_scenario(SHORT, seed=1, policy=_policy(tmp_path, FakeClient()))
+    pol = _policy(tmp_path, FakeClient(raise_exc=AssertionError()), mode="replay")
+    pol.prompt_version = "v2-neutral"
+    b = run_scenario(SHORT, seed=1, policy=pol)
+    assert a.policy_usage["api_calls"] > 0 and b.policy_usage["cache_hits"] == 0
+    assert b.policy_usage["prompt_version"] == "v2-neutral"

@@ -30,6 +30,7 @@ def _claude_from_env():
     return ClaudePolicy(
         model=os.environ.get("ASEL_LLM_MODEL", "claude-haiku-5-5"),
         mode=os.environ.get("ASEL_LLM_MODE", "replay"),
+        prompt_version=os.environ.get("ASEL_LLM_PROMPT", "v1-warehouse"),
         guard=guard,
     )
 
