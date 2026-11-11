@@ -11,7 +11,7 @@
 | [0004](0004-claude-policy-model-and-budget.md) | Claude 정책: Haiku 기본, 예산 가드(예약→정산), 응답 캐시 | 잠정 (사후 기록: EXP-003 예산 배분 사고, 추가 규칙) | EXP-001, EXP-003 (상한 초과 0, 예산 부족 대체 0, 재생 재현), 장부·캐시 테스트 |
 | [0005](0005-reconfiguration-semantics.md) | 셀 재구성: 비우기 → 전환 → 새 역할, 취소 없음, 마지막 제공 셀 보호 | 잠정 (사용자 확정 대기) | EXP-002, EXP-003 (B·C 에서 같은 의미로 동작), 재구성 테스트 |
 | [0006](0006-structure-controller-role.md) | 구조 제어 주체를 배정 주체와 분리 | 잠정 (사용자 확정 대기) | EXP-002, EXP-003 (규칙·Claude 구조 제어를 배정 FIFO 고정으로 비교) |
-| [0007](0007-3d-graphics-deferred.md) | 3D 그래픽 후순위, 3D 공간 제약은 엔진 기능 (안 A) | 확정 (사용자 결정) | M5 §3.4, `test_space_3d.py` |
+| [0007](0007-3d-graphics-deferred.md) | 3D 그래픽 후순위, 3D 공간 제약은 엔진 기능 (안 A) | 확정 (사용자 결정, 2026-11-12 재검토 → 그래픽 재생 추가) | M5 §3.4, `test_space_3d.py`, 3D 재생 `test_scene3d.py`·`test_viewer3d.py` (M6 §3.7) |
 | [0008](0008-assembly-line-representation.md) | 조립 라인은 기존 부품(DAG·혼류·재구성)으로, 재고·버퍼는 범위 밖 | 잠정 | M5 이식성 측정 (환경 B) |
 
 사람이 내린 결정과 AI 가 제안한 결정의 구분은 [AI 사용 기록](../12-AI-USAGE.md) §3 참고.
