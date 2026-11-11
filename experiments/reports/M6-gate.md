@@ -37,13 +37,17 @@
 
 ### 3.2 깨끗한 환경 재현 (#54)
 
+**최종 (2026-11-12, 커밋 `6f10112`, GitHub 에서 새로 clone + Release 에서 내려받은 자산만 사용):**
+
 | 단계 | 결과 | 시간 |
 |---|---|---|
-| `git clone` → `uv sync` | 성공 | 4 초 |
-| `uv run pytest` | 전부 통과 (당시 216개) | 91 초 |
-| `reproduce.py check EXP-001 EXP-002 --sample 30` (응답 캐시 없음) | 45 / 45 동일, Claude 실행 9회는 캐시가 없어 건너뜀 | 3 초 |
-| 공개용 `llm-cache.zip` 만 빈 폴더에 풀어 `ASEL_LLM_DIR` 로 지정, `reproduce.py check --sample 30` | 84 / 84 동일 (Claude 실행 포함, 세 실험), 캐시 폴더에 쓰기 없음 | 수 분 |
-| Release 에서 내려받은 파일의 SHA-256 대조 | (업로드 후) | |
+| `git clone -b exp003` → `uv sync` | 성공 | 2 초 + 3 초 |
+| `uv run pytest` | **224개 전부 통과** | 2 분 13 초 |
+| `gh release download data-v1` → 저장소의 `SHA256SUMS.txt` 와 대조 | **5 / 5 일치** | 18 초 |
+| `llm-cache.zip` 을 빈 폴더에 풀어 `ASEL_LLM_DIR` 로 지정, `reproduce.py check` (전체) | **1,495 / 1,495 사건 로그 바이트 동일** (Claude 실행 205회 포함), 장부 변화 0, 캐시 폴더에 쓰기 없음 | 12 분 28 초 |
+
+1차 (2026-11-11, 캐시 없이): 설치 4 초, 테스트 216개 통과 91 초, `--sample 30` 45 / 45 동일 (Claude 실행 9회는 캐시가 없어 건너뜀).
+같은 PC 에서 한 시험이므로 다른 OS·다른 사람 환경의 검증은 CI(Windows·Ubuntu) 로 대신한다.
 
 ### 3.3 원자료 공개 (#51)
 
@@ -60,7 +64,7 @@
 | `llm-cache.zip` | 38.9 MB | Claude 응답 79,874개 (EXP-001·003) |
 
 - 알려진 결함: 평가기 0.6 이전에는 `evaluation.json` 의 `experiment` 필드가 항상 `EXP-001` 이었다(리뷰에서 발견, 고침). EXP-003 은 같은 평가기로 다시 평가해 바로잡았고(평가표는 바이트 동일), EXP-001·002 는 보고서 수치의 근거를 바꾸지 않도록 당시 평가 결과를 그대로 둔다. 실험 구분은 폴더 이름과 manifest 의 `extra.experiment` 를 쓴다.
-- Release: (사용자 승인 후 업로드)
+- **Release [`data-v1`](https://github.com/kingdol536/ASEL/releases/tag/data-v1)** (2026-11-12, 사용자 승인 후 업로드, 대상 커밋 `6f10112`). 업로드 후 빈 폴더로 다시 내려받아 SHA-256 대조 **5 / 5 일치**, Release 의 `SHA256SUMS.txt` 는 저장소의 것과 같다.
 
 ### 3.4 docs/09 §1 성공의 정의 대조
 
