@@ -1,3 +1,6 @@
 * text=auto eol=lf
 *.png binary
 *.jpg binary
+
+# 외부 라이브러리 원본은 바이트 그대로 보존 (체크섬 대조)
+src/asel/static/** -text

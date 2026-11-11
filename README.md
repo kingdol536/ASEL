@@ -1,6 +1,6 @@
 # Adaptive System Evolution Lab (ASEL)
 
-> **M1~M6 완료** (12주 계획의 필수 범위, [M6 게이트 보고서](experiments/reports/M6-gate.md)) · 다음: 3D 그래픽 재생 (#57~#59)  
+> **M1~M6 완료** (12주 계획의 필수 범위, [M6 게이트 보고서](experiments/reports/M6-gate.md)) · 3D 그래픽 재생 추가 (결정 0007 재검토)  
 > M4·EXP-003 결과는 사용자 검토 전 잠정  
 > 언어: 한국어 · 시작: 2026-11-11 · 1차: 12주 포트폴리오(~2027-02-02) · 2차: 후속 5~12개월 연구
 
@@ -36,6 +36,23 @@ uv run asel run scenarios/assembly-line-b.yaml --structure p1   # 조립 라인 
 uv run asel view experiments/runs/assembly-line-b/<run_dir>     # 2D 화면(HTML): 공정 흐름·타임라인·대기열
 uv run asel replay-check experiments/runs/assembly-line-b/<run_dir>   # 사건 로그만으로 상태 재구성 검사
 ```
+
+### 3D 재생 (Three.js 내장, 인터넷 없이 열림)
+
+```bash
+uv run asel run scenarios/assembly-line-b-3d.yaml --seed 0 --structure p1   # 3D 배치(천장 높이)를 검사하며 실행
+uv run asel view3d experiments/runs/assembly-line-b-3d/<run_dir>              # -> <run_dir>/view3d.html
+uv run asel run scenarios/assembly-line-b.yaml --seed 0 --structure p1      # 같은 라인, 공간 정보 없는 2D 실행
+uv run asel view3d experiments/runs/assembly-line-b/<run_dir> --layout scenarios/assembly-line-b-3d.yaml   # 2D 실행을 3D 배치에 겹쳐 봄
+```
+
+| 2D 실행을 3D 배치에 겹쳐 봄 (1,477 s) | 3D 배치로 실행 (같은 시각) |
+|---|---|
+| ![2D 실행의 전환이 3D 천장에 걸린 장면](docs/images/3d-replay-2d-run-on-3d-layout.jpg) | ![3D 배치로 실행한 같은 시각](docs/images/3d-replay-3d-run.jpg) |
+
+2D 에서는 공용 프레스 press-2 를 press-A 로 돌린다(빨간 상자). 그런데 press-A 금형은 3.8 m 가 필요하고 press-2 는 천장 3.2 m 메자닌(노란 판) 아래에 있다.
+3D 배치로 실행하면 엔진이 이 전환을 후보에서 빼고, 처리 시간이 길어진다([M5 §3.4](experiments/reports/M5-gate.md)).
+화면은 엔진 판정을 보여주는 재생기일 뿐 물리 시뮬레이션이 아니다([결정 0007](docs/decisions/0007-3d-graphics-deferred.md)).
 
 ### 기록된 실험 재현
 
@@ -87,6 +104,6 @@ ASEL_LLM_DIR=<푼 폴더> uv run python experiments/configs/reproduce.py check -
 ## 주의
 
 - 모든 시나리오 수치는 기능 검증용 **가상 값**이며, 실험 결과는 현실 성능 주장이 아니다.
-- 3D 는 정적 배치·천장 높이 제약을 엔진에서 검증하는 수준이다(그래픽 없음, [결정 0007](docs/decisions/0007-3d-graphics-deferred.md)).
+- 3D 는 정적 배치·천장 높이 제약을 엔진에서 검증하고 3D 화면으로 재생하는 수준이다(물리 엔진·이동체 없음, [결정 0007](docs/decisions/0007-3d-graphics-deferred.md)).
 - 3개 환경의 결과를 모든 산업의 범용성으로 해석하지 않는다. 산업별 적용성은 도메인별 검증이 필요하다.
 - 시뮬레이션 안 AI 의 최종 역할·권한 구성과 최종 평가 지표는 아직 **미결정**이다.
