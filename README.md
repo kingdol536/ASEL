@@ -1,6 +1,6 @@
 # Adaptive System Evolution Lab (ASEL)
 
-> **진행 중: M1~M5 완료, M6 통합 포트폴리오·EXP-003 진행 중** (M4 결과는 사용자 승인 전 잠정)  
+> **진행 중: M1~M5·EXP-003 완료, M6 통합 포트폴리오 진행 중** (M4 결과는 사용자 승인 전 잠정)  
 > 언어: 한국어 · 시작: 2026-11-11 · 1차: 12주 포트폴리오(~2027-02-02) · 2차: 후속 5~12개월 연구
 
 ## 한 문장 소개
@@ -20,7 +20,7 @@
 | EXP-001 (270회) | Claude 배정 정책이 정답을 보지 않고 안전하게 판단하는가 | 안전 경계 위반·숨겨진 값 누출 0, 무효 제안 0%. 처리 시간은 FIFO 와 거의 같음 (가설 2개 지지, 2개 반증) | [M3](experiments/reports/M3-gate.md) |
 | EXP-002 (810회) | 셀 역할 전환(구조 변경)은 언제 이득이고, 병목을 옮기는가 | 전환이 싸고 수요 급증이 클수록 이득, 전환이 비쌀수록 이득 감소(뒤집힘은 관측 안 됨), 구조 변경이 병목을 다른 곳으로 옮김 | [M4](experiments/reports/M4-gate.md) (잠정) |
 | M5 이식성 | 다른 산업에도 엔진을 옮길 수 있는가 | 조립 라인: 코어 수정 0줄. 동결 뒤 설계한 IT 서비스: 코어 23줄(행동 1개 추가). 물류용 구조 정책은 IT 환경에서 시간 초과를 4~7배로 늘림(탐색적) | [M5](experiments/reports/M5-gate.md) |
-| EXP-003 | AI 의 판단(배정·구조 제어)도 다른 산업으로 옮겨지는가 | 실행 중 | [계획서](experiments/plans/EXP-003.md) |
+| EXP-003 (415회) | AI 의 판단(배정·구조 제어)도 다른 산업으로 옮겨지는가 | Claude 구조 제어: 조립 라인에서 처리 시간 16% 단축(30/30 시드, 규칙 정책보다 좋음), IT 서비스에서 시간 초과 취소 약 7배(역할을 되돌리며 처리 공백을 만듦, 시간 제한은 관측에 없음). Claude 배정: 유효·안전하고 FIFO 대비 비열등이나 무료 규칙보다 낫지 않고 비쌈 (가설 5개 지지, 2개 반증, 1개 판정 불가) | [EXP-003](experiments/reports/EXP-003.md) |
 
 실험마다 계획서를 실행 전에 커밋·푸시해 고정했고(사전 등록), 결과를 본 뒤 바꾼 분석은 '탐색적'으로 따로 표시한다.
 
@@ -39,8 +39,8 @@ uv run asel replay-check experiments/runs/assembly-line-b/<run_dir>   # 사건 �
 ### 기록된 실험 재현
 
 ```bash
-uv run python experiments/configs/reproduce.py check EXP-001 EXP-002 --sample 30   # 표본 재현 (몇 분)
-uv run python experiments/configs/reproduce.py check EXP-001 EXP-002               # 전체 1,080회
+uv run python experiments/configs/reproduce.py check --sample 30   # 실험마다 표본 재현 (몇 분)
+uv run python experiments/configs/reproduce.py check               # 전체 1,495회 (EXP-001 270, EXP-002 810, EXP-003 415)
 ```
 
 저장소에 커밋된 실행 목록(`runs_index.csv`)대로 다시 실행해, 사건 로그의 SHA-256 이 기록과 바이트 단위로 같은지 대조한다.

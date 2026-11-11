@@ -32,6 +32,26 @@ ARMS = {
 }
 
 
+SIZING = Path("experiments/reports/assets/EXP-003/sizing.json")
+
+
+def check_seeds(phase: str, arm: str, env: str, seeds: list[int]) -> None:
+    """본 실험(main)은 계획서 §3.3 평가 시드 중 sizing.json 의 N 안에서만 돌린다. 탐색(exploratory)은 제한 없음."""
+    if phase == "main":
+        allowed = set(range(300, 330))
+        if "claude" in arm:
+            sized = json.loads(SIZING.read_text(encoding="utf-8"))["arms"].get(f"{arm}-{env}")
+            allowed = set(range(300, 300 + (sized["N"] if sized else 0)))
+        bad = sorted(set(seeds) - allowed)
+        if bad:
+            raise SystemExit(f"main 단계에 허용되지 않은 시드 {bad} ({arm}-{env}, 계획서 §3.3·§3.4, sizing.json)")
+    elif phase == "pilot":
+        if max(seeds) >= 100:
+            raise SystemExit("pilot 단계는 개발 시드(100 미만)만 쓴다")
+    elif phase != "exploratory":
+        raise SystemExit(f"알 수 없는 단계 {phase!r} (pilot | main | exploratory)")
+
+
 def main() -> None:
     plan, arm, env, seeds = sys.argv[1:5]
     jobs = int(sys.argv[5]) if len(sys.argv) > 5 else 4
@@ -42,6 +62,7 @@ def main() -> None:
         os.environ["ASEL_LLM_MODEL"] = "claude-haiku-5-5"
     # 탐색적 추가 실행(사전 고정 분석 밖)은 ASEL_EXP003_PHASE=exploratory 로 main 과 분리한다
     phase = os.environ.get("ASEL_EXP003_PHASE") or ("pilot" if parse_seeds(seeds)[0] < 100 else "main")
+    check_seeds(phase, arm, env, parse_seeds(seeds))
     bd = run_batch(
         [SCEN[env]], parse_seeds(seeds), Path("experiments/batches/EXP-003") / phase / f"{arm}-{env}", jobs=jobs,
         policies=cfg["policies"], structure_policies=cfg["structures"],

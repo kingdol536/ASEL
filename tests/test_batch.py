@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import io
 import json
+import shutil
 
 import pytest
 
-from asel.batch import parse_seeds, run_batch
+from asel.batch import finalize_interrupted_batch, parse_seeds, run_batch
 from conftest import ROOT
 
 SCENARIOS = [str(ROOT / "scenarios" / n) for n in ("warehouse-small-a.yaml", "warehouse-fault-a.yaml")]
@@ -45,3 +46,32 @@ def test_batch_summary_is_deterministic_and_parallel_safe(tmp_path):
 def test_batch_rejects_duplicate_scenarios(tmp_path):
     with pytest.raises(ValueError):
         run_batch([SCENARIOS[0], SCENARIOS[0]], [0], tmp_path)
+
+
+def _rows(path):
+    with open(path, encoding="utf-8") as f:
+        return sorted(csv.DictReader(f), key=lambda r: (r["scenario_id"], r["policy"], r["structure"], int(r["seed"])))
+
+
+def test_finalize_interrupted_batch_matches_normal_batch(tmp_path):
+    """중단된 배치를 끝난 실행만으로 마무리하면, 정상 배치의 같은 실행 행과 똑같은 표가 나온다."""
+    full = run_batch(SCENARIOS, [0, 1, 2], tmp_path / "full", jobs=1)
+    cut = tmp_path / "cut" / full.name
+    shutil.copytree(full, cut)
+    for name in ("batch.json", "batch_summary.csv", "batch_eval.csv"):
+        (cut / name).unlink()
+    # 끝나지 않은 실행은 실행 폴더 자체가 없다 (폴더는 실행이 끝난 뒤에만 쓰인다)
+    gone = next((cut / "runs" / "warehouse-fault-a").glob("*seed2__*"))
+    shutil.rmtree(gone)
+
+    finalize_interrupted_batch(cut, planned_seeds=[0, 1, 2], note="test")
+
+    for name in ("batch_summary.csv", "batch_eval.csv"):
+        expect = [r for r in _rows(full / name) if not (r["scenario_id"] == "warehouse-fault-a" and r["seed"] == "2")]
+        assert _rows(cut / name) == expect
+    info = json.loads((cut / "batch.json").read_text(encoding="utf-8"))
+    assert info["interrupted"] is True and info["n_runs"] == 5
+    assert info["completed_seeds"] == [0, 1, 2] and info["missing_seeds"] == []  # 시드 2 는 다른 시나리오에 남음
+    assert info["invariant_violations_total"] == 0 and info["safety_boundary_all_ok"] is True
+    with pytest.raises(ValueError):
+        finalize_interrupted_batch(cut, planned_seeds=[0, 1, 2], note="again")  # 이미 마무리됨
