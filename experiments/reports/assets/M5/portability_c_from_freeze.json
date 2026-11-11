@@ -1,0 +1,20 @@
+{
+  "env": "it-service-c",
+  "base": "e935739",
+  "after": "ce78d74",
+  "core_diff_lines": 23,
+  "engine_diff_lines": 41,
+  "adapter_lines": 47,
+  "config_lines": 139,
+  "public_interface_changes": 1,
+  "public_interface_added": [
+    "actions.ActionKind.CANCEL_TASKS=cancel_tasks"
+  ],
+  "public_interface_removed": [],
+  "new_concepts": 1,
+  "concepts_added": [
+    "ACTIONS:ActionKind.CANCEL_TASKS"
+  ],
+  "concepts_removed": [],
+  "config_only_ratio": 0.556
+}

@@ -69,6 +69,7 @@ ENV_ACTIONS = frozenset(
         ActionKind.END_OUTAGE,
         ActionKind.COMPLETE_RECONFIGURATION,
         ActionKind.CANCEL_TASKS,
+        ActionKind.SET_OBJECTIVE,
     }
 )
 DISPATCH_ACTIONS = (ActionKind.START_TASK,)

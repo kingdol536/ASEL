@@ -155,6 +155,9 @@ def apply_event(state: WorldState, ev: Event) -> None:
         ent.mode_since = ev.sim_time
         state.structure_version += 1
 
+    elif et == EventType.OBJECTIVE_CHANGED:
+        state.objective = dict(p["objective"])
+
     elif et in (EventType.ACTION_PROPOSED, EventType.ACTION_REJECTED, EventType.RUN_ENDED):
         pass  # 상태 변경 없음 (시각만 갱신)
 
@@ -308,7 +311,20 @@ class World:
             r += self._validate_complete_reconfiguration(action.params)
         elif action.kind == ActionKind.CANCEL_TASKS:
             r += self._validate_cancel(action.params)
+        elif action.kind == ActionKind.SET_OBJECTIVE:
+            r += self._validate_objective(action.params)
         return r
+
+    def _validate_objective(self, p: dict) -> list[str]:
+        """코어는 목표의 형식만 본다 (id·kind 문자열, params dict). 목표 종류의 의미는 정책·평가기 몫."""
+        o = p.get("objective")
+        if not isinstance(o, dict) or set(o) != {"id", "kind", "params"}:
+            return ["set_objective: objective must be {id, kind, params}"]
+        if not (isinstance(o["id"], str) and o["id"] and isinstance(o["kind"], str) and o["kind"]):
+            return ["set_objective: id and kind must be non-empty strings"]
+        if not isinstance(o["params"], dict):
+            return ["set_objective: params must be a dict"]
+        return []
 
     def _validate_cancel(self, p: dict) -> list[str]:
         ids = p.get("tasks")
@@ -529,6 +545,9 @@ class World:
         if a.kind == ActionKind.COMPLETE_RECONFIGURATION:
             ent = self.state.entities[p["entity"]]
             return [(EventType.RECONFIGURATION_COMPLETED, ent.id, {"capabilities": list(ent.target_capabilities)}, None)]
+
+        if a.kind == ActionKind.SET_OBJECTIVE:
+            return [(EventType.OBJECTIVE_CHANGED, None, {"objective": dict(p["objective"])}, None)]
 
         if a.kind == ActionKind.CANCEL_TASKS:
             # 아직 시작하지 않은 작업만 취소한다. 진행 중 작업은 끝까지 처리하고(자원 회계 단순화),

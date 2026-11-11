@@ -33,6 +33,7 @@ CONCEPTS: dict[str, str] = {
 # 개념에 속하지 않는 '값' 개념: capability 는 문자열 라벨이다 (산업별 의미는 시나리오가 준다)
 VALUE_CONCEPTS: dict[str, str] = {
     "capability": "어떤 일을 할 수 있는지 나타내는 라벨 (예: pick, pack). Task 가 요구하고 Entity 가 제공한다",
+    "objective": "현재 운영 목표 {id, kind, params}. 공개 정보 — 채점식은 평가기 전용 (R-07 미결정, #38)",
 }
 
 # ------------------------------------------------------------------ 관계 (출발 개념.필드 → 도착 개념)
@@ -54,6 +55,7 @@ LINKS: list[tuple[str, str, str, str]] = [
     ("WorldState", "resources", "Resource", "세계에 있는 자원"),
     ("WorldState", "tasks", "Task", "세계에 있는 작업"),
     ("WorldState", "relations", "Relation", "세계에 있는 연결"),
+    ("WorldState", "objective", "objective", "현재 운영 목표"),
 ]
 
 # ------------------------------------------------------------------ 행동·사건 (부품을 움직이는 동사)
@@ -67,6 +69,7 @@ ACTIONS: dict[str, str] = {
     ActionKind.REQUEST_RECONFIGURATION: "역할 전환 요청 (구조 제어 주체)",
     ActionKind.COMPLETE_RECONFIGURATION: "역할 전환 완료 (환경)",
     ActionKind.CANCEL_TASKS: "아직 시작하지 않은 작업 포기 (환경, 예: 요청 시간 초과). 진행 중 작업은 끝까지",
+    ActionKind.SET_OBJECTIVE: "운영 목표 변경 (환경)",
 }
 
 EVENTS: dict[str, str] = {
@@ -82,6 +85,7 @@ EVENTS: dict[str, str] = {
     EventType.RECONFIGURATION_REQUESTED: "재구성 요청 (작업 비우기 시작)",
     EventType.RECONFIGURATION_STARTED: "역할 전환 시작",
     EventType.RECONFIGURATION_COMPLETED: "새 역할 적용",
+    EventType.OBJECTIVE_CHANGED: "운영 목표 변경 (공개)",
     EventType.RUN_ENDED: "실행 종료",
 }
 

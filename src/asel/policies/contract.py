@@ -35,6 +35,7 @@ class Observation:
     open_tasks: tuple[dict, ...]
     completed_tasks: int
     structure_version: int | None = None  # 재구성 가능한 셀이 있는 세계에서만 채운다
+    objective: dict | None = None  # 현재 운영 목표 (공개). 목표가 정해진 세계에서만
 
     def to_dict(self) -> dict:
         d = {
@@ -48,6 +49,8 @@ class Observation:
         }
         if self.structure_version is not None:
             d["structure_version"] = self.structure_version
+        if self.objective is not None:
+            d["objective"] = self.objective
         return d
 
     def to_json(self) -> str:
@@ -131,6 +134,7 @@ def project(state: WorldState, actor_id: str) -> Observation:
             "capability": t.capability,
             "status": str(t.status),
             "order": t.tags.get("order"),
+            **({"flow": t.tags["flow"]} if "flow" in t.tags else {}),  # 혼류에서만 (이전 관측 형식 유지)
             "step": t.tags.get("step"),
             "predecessors": list(t.predecessors),
             "created_at": t.created_at,
@@ -144,7 +148,8 @@ def project(state: WorldState, actor_id: str) -> Observation:
     )
     completed = sum(1 for t in state.tasks.values() if t.status == TaskStatus.COMPLETED)
     return Observation(actor_id, state.sim_time, state.version, cells, relations, open_tasks, completed,
-                       state.structure_version if any_reconfig else None)
+                       state.structure_version if any_reconfig else None,
+                       dict(state.objective) if state.objective is not None else None)
 
 
 def offered_after(cells: tuple[dict, ...], override: tuple[str, list[str]] | None = None) -> set[str]:

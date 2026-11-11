@@ -128,6 +128,7 @@ class JobFlowWorkload:
             fault_events.append((f.start_s, 1, i, ("fault_start", i)))
             fault_events.append((f.end_s, 0, i, ("fault_end", i)))
         sched += [(t, data) for t, _, _, data in sorted(fault_events)]
+        sched += [(o.at_s, ("objective", i)) for i, o in enumerate(self.sc.objective_schedule)]
         return sched
 
     def _fault_action(self, kind: str, i: int) -> Action:
@@ -148,6 +149,10 @@ class JobFlowWorkload:
             return [self._fault_action(kind, n)], []
         if kind == "timeout":
             return [Action(ENV_ACTOR, ActionKind.CANCEL_TASKS, {"tasks": list(n)})], []
+        if kind == "objective":
+            o = self.sc.objective_schedule[n]
+            return [Action(ENV_ACTOR, ActionKind.SET_OBJECTIVE,
+                           {"objective": {"id": o.id, "kind": o.kind, "params": dict(o.params)}})], []
         assert kind == "arrival", kind
         self._count += 1
         if self._mix is None:

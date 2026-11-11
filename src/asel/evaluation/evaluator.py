@@ -22,7 +22,7 @@ from asel.core.events import Event
 from asel.evaluation.bottleneck import structure_metrics
 from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.4"  # 0.2: 대체 제안 분리 / 0.3: 병목·재구성 지표 / 0.4: 비우는 중 셀 용량·잃은 용량 정의 수정
+EVALUATOR_VERSION = "eval-0.5"  # 0.2 대체 제안 분리 / 0.3 병목 / 0.4 비우는 중 용량 / 0.5 묶음 완료=전체 작업, 취소, 목표 구간
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 
@@ -87,6 +87,56 @@ def order_metrics(events) -> dict:
         "orders_censored": {"n": len(open_ages), "age_at_end_mean_s": _mean(open_ages),
                             "age_at_end_max_s": max(open_ages) if open_ages else None},
     }
+
+
+def objective_segments(events) -> list[dict]:
+    """운영 목표 구간별 채점 (#38, 평가기 전용 — 정책 관측에는 채점식이 없다).
+
+    구간 = 한 목표가 유지된 시간. 그 구간에 **도착한** 작업 묶음을 그 목표로 채점한다 (잠정, R-07 미결정).
+    - kind "throughput": 구간에 도착해 완료된 묶음 수 / 시간(시간당)
+    - kind "priority": params.flow 묶음의 평균 처리 시간 (낮을수록 좋음), 그 밖 묶음 평균도 함께
+    """
+    changes, arrival, flow_of, remaining, done_at = [], {}, {}, {}, {}
+    task_order = {}
+    end_time = 0.0
+    for e in events:
+        end_time = max(end_time, e.sim_time)
+        if e.event_type == "ObjectiveChanged":
+            changes.append((e.sim_time, e.payload["objective"]))
+        elif e.event_type == "TaskCreated":
+            tags = e.payload.get("tags", {})
+            o = tags.get("order")
+            if o is None:
+                continue
+            task_order[e.entity_id] = o
+            arrival.setdefault(o, e.sim_time)
+            flow_of[o] = tags.get("flow")
+            remaining[o] = remaining.get(o, 0) + 1
+        elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "COMPLETED":
+            o = task_order.get(e.entity_id)
+            if o is not None:
+                remaining[o] -= 1
+                if remaining[o] == 0:
+                    done_at[o] = e.sim_time
+    out = []
+    for i, (t0, obj) in enumerate(changes):
+        t1 = changes[i + 1][0] if i + 1 < len(changes) else end_time
+        inst = [o for o, t in arrival.items() if t0 <= t < t1]
+        done = [o for o in inst if o in done_at]
+        by_flow: dict[str, list[float]] = {}
+        for o in done:
+            by_flow.setdefault(flow_of[o] or "-", []).append(done_at[o] - arrival[o])
+        seg = {
+            "from_s": t0, "to_s": t1, "objective": obj, "arrived": len(inst), "completed": len(done),
+            "flow_mean_by_flow": {k: _mean(v) for k, v in sorted(by_flow.items())},
+        }
+        if obj.get("kind") == "throughput":
+            seg["score"] = {"completed_per_hour": len(done) / ((t1 - t0) / 3600) if t1 > t0 else None}
+        elif obj.get("kind") == "priority":
+            target = obj.get("params", {}).get("flow")
+            seg["score"] = {"target_flow": target, "target_flow_mean_s": seg["flow_mean_by_flow"].get(target)}
+        out.append(seg)
+    return out
 
 
 def decision_metrics(events, policy_actor: str | None) -> dict:
@@ -163,6 +213,7 @@ def evaluate_run(run_dir: Path) -> dict:
         "decisions": decision_metrics(public, policy.get("actor_id")),
         "backlog_end": backlog_end,
         "structure": structure_metrics(public),
+        "objectives": objective_segments(public),
         "decision_cost": {
             k: usage.get(k)
             for k in ("model", "api_calls", "cache_hits", "input_tokens", "output_tokens",

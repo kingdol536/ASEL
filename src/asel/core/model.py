@@ -106,6 +106,7 @@ class Task:
 class WorldState:
     version: int = 0
     structure_version: int = 0  # 구조(셀 역할) 변경 완료마다 1 증가
+    objective: dict | None = None  # 현재 운영 목표 {id, kind, params} — 공개 정보 (#38). 채점식은 평가기 전용
     sim_time: float = 0.0
     entities: dict[str, Entity] = field(default_factory=dict)
     relations: list[Relation] = field(default_factory=list)
@@ -114,7 +115,7 @@ class WorldState:
 
     def snapshot(self) -> dict:
         """비교·해시용 정규화 표현. 키 순서와 무관하게 동일 상태면 동일 dict."""
-        return {
+        snap = {
             "version": self.version,
             "structure_version": self.structure_version,
             "sim_time": self.sim_time,
@@ -154,3 +155,6 @@ class WorldState:
                 for k, t in sorted(self.tasks.items())
             },
         }
+        if self.objective is not None:
+            snap["objective"] = self.objective  # 목표가 있는 세계에서만 (이전 실행의 최종 상태 형식 유지)
+        return snap

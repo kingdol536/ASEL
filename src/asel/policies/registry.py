@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from asel.policies.baselines import FirstCandidatePolicy, OrderAgePolicy
+from asel.policies.baselines import FirstCandidatePolicy, ObjectiveAwarePolicy, OrderAgePolicy
 from asel.policies.fifo import FifoPolicy
 
 POLICIES: dict[str, Callable[[], object]] = {
     "fifo": FifoPolicy,
     "order-age": OrderAgePolicy,
     "first-candidate": FirstCandidatePolicy,
+    "objective-aware": ObjectiveAwarePolicy,
 }
 
 

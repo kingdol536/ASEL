@@ -23,6 +23,7 @@ graph LR
   WorldState -->|resources| Resource
   WorldState -->|tasks| Task
   WorldState -->|relations| Relation
+  WorldState -->|objective| objective
 ```
 
 ## 부품 목록
@@ -55,7 +56,7 @@ graph LR
 
 세계의 현재 상태. version(모든 변경), structure_version(구조 변경), 시각
 
-- 필드/값: `version`, `structure_version`, `sim_time`, `entities`, `relations`, `resources`, `tasks`
+- 필드/값: `version`, `structure_version`, `objective`, `sim_time`, `entities`, `relations`, `resources`, `tasks`
 
 ### TaskStatus
 
@@ -72,6 +73,10 @@ graph LR
 ### capability (값)
 
 어떤 일을 할 수 있는지 나타내는 라벨 (예: pick, pack). Task 가 요구하고 Entity 가 제공한다
+
+### objective (값)
+
+현재 운영 목표 {id, kind, params}. 공개 정보 — 채점식은 평가기 전용 (R-07 미결정, #38)
 
 ## 관계
 
@@ -92,6 +97,7 @@ graph LR
 | WorldState | `resources` | Resource | 세계에 있는 자원 |
 | WorldState | `tasks` | Task | 세계에 있는 작업 |
 | WorldState | `relations` | Relation | 세계에 있는 연결 |
+| WorldState | `objective` | objective | 현재 운영 목표 |
 
 ## 행동 (부품을 움직이는 동사)
 
@@ -104,6 +110,7 @@ graph LR
 | `create_task` | 작업 생성 (환경). 실제 처리 시간은 비공개 |
 | `end_outage` | 고장 종료 (환경) |
 | `request_reconfiguration` | 역할 전환 요청 (구조 제어 주체) |
+| `set_objective` | 운영 목표 변경 (환경) |
 | `start_task` | 작업 시작 = 자원 예약 + RUNNING (배정 주체) |
 
 ## 사건 (기록되는 사실)
@@ -112,6 +119,7 @@ graph LR
 |---|---|
 | `ActionProposed` | 행동 제안 기록 |
 | `ActionRejected` | 행동 거절과 사유 (사유는 공개되므로 숨겨진 값을 넣지 않는다) |
+| `ObjectiveChanged` | 운영 목표 변경 (공개) |
 | `ReconfigurationCompleted` | 새 역할 적용 |
 | `ReconfigurationRequested` | 재구성 요청 (작업 비우기 시작) |
 | `ReconfigurationStarted` | 역할 전환 시작 |
