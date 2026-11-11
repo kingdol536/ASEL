@@ -147,20 +147,34 @@ class JobFlow(_Strict):
         return self
 
 
+class MixItem(_Strict):
+    """혼류의 한 흐름과 비율 (#37). 도착마다 비율에 따라 흐름을 고른다."""
+
+    weight: PositiveFloat
+    flow: JobFlow
+
+
 class Workload(_Strict):
     arrival_process: ArrivalProcess
-    # 둘 중 하나: job_template(일직선 사슬, 0.1~0.3 호환) 또는 flow(갈라짐·합침, 0.4)
+    # 셋 중 하나: job_template(일직선 사슬, 0.1~0.3 호환) / flow(갈라짐·합침, 0.4) / mix(여러 흐름 혼류, 0.4)
     job_template: list[JobStep] | None = Field(default=None, min_length=1)  # 앞 단계가 다음 단계의 선행 작업
     flow: JobFlow | None = None
+    mix: list[MixItem] | None = Field(default=None, min_length=1)
     max_arrivals: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _one_flow(self):
-        if (self.job_template is None) == (self.flow is None):
-            raise ValueError("workload needs exactly one of job_template or flow")
+        if sum(x is not None for x in (self.job_template, self.flow, self.mix)) != 1:
+            raise ValueError("workload needs exactly one of job_template, flow, mix")
+        if self.mix is not None:
+            prefixes = [m.flow.instance_prefix for m in self.mix]
+            if len(set(prefixes)) != len(prefixes):
+                raise ValueError("mix flows need distinct instance_prefix values")
         return self
 
     def capabilities(self) -> list[str]:
+        if self.mix is not None:
+            return [s.capability for m in self.mix for s in m.flow.steps]
         if self.flow is not None:
             return [s.capability for s in self.flow.steps]
         return [s.capability for s in self.job_template]
@@ -216,8 +230,8 @@ class Scenario(_Strict):
             raise ValueError("faults / piecewise_poisson require schema_version '0.2'")
         if self.schema_version not in ("0.3", "0.4") and any(e.reconfigurable for e in self.entities):
             raise ValueError("reconfigurable entities require schema_version '0.3' or later")
-        if self.schema_version != "0.4" and self.workload.flow is not None:
-            raise ValueError("workload.flow requires schema_version '0.4'")
+        if self.schema_version != "0.4" and (self.workload.flow is not None or self.workload.mix is not None):
+            raise ValueError("workload.flow / workload.mix require schema_version '0.4'")
         return self
 
     @model_validator(mode="after")
@@ -259,7 +273,7 @@ class Scenario(_Strict):
         해시(→ run_id → 사건 로그 바이트)가 스키마 확장 전과 같게 유지한다 (#34)."""
         d = self.model_dump(mode="json")
         wl = d["workload"]
-        for k in ("flow", "job_template"):
+        for k in ("flow", "job_template", "mix"):
             if wl.get(k) is None:
                 wl.pop(k, None)
         # 정규 형식은 시나리오가 선언한 스키마 버전을 따른다: 그 버전 뒤에 생긴 항목은 넣지 않는다.

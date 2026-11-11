@@ -1,0 +1,64 @@
+# 환경 B: 조립 생산 라인 (설계 참고 환경, 결정 0008). 모든 수치는 기능 검증용 가상 값이다.
+#
+# 산업 코드 없이 공통 언어의 부품만으로 조립한다:
+#   - 하위 조립 병렬 → 합류: frame·motor 가 끝나야 press, press·motor 가 끝나야 assemble (workload.mix 의 DAG)
+#   - 제품 혼류: 제품 A 70% / B 30%, 프레스 공정이 다름 (press-A / press-B)
+#   - 제품 전환 셋업: 프레스 역할 전환 = 재구성 (changeover_s = 셋업 시간 90s)
+# 제외(결정 0008): 부품 재고·BOM 수량, 유한 버퍼, 운반, 재작업
+#
+# 대략적 부하(가상, 2.0 제품/분): press-A 수요 1.4/분 x 45s = 1.05 프레스 분량 > press-1 하나
+#                                  press-B 수요 0.6/분 x 45s = 0.45 → press-2(공용)를 A 로 돌리면 해소 가능
+schema_version: "0.4"
+scenario_id: assembly-line-b
+domain: job_flow
+seed: 42
+sim_time_limit: 3600
+entities:
+  - {id: frame-1, type: machining, capabilities: [frame], capacity: 1}
+  - {id: frame-2, type: machining, capabilities: [frame], capacity: 1}
+  - {id: motor-1, type: subassembly, capabilities: [motor], capacity: 1}
+  - {id: motor-2, type: subassembly, capabilities: [motor], capacity: 1}
+  - {id: press-1, type: press, capabilities: [press-A], capacity: 1}
+  - id: press-2
+    type: press
+    capabilities: [press-B]
+    capacity: 1
+    reconfigurable: {options: [[press-A], [press-B]], changeover_s: 90}
+  - {id: press-3, type: press, capabilities: [press-B], capacity: 1}
+  - {id: assy-1, type: assembly, capabilities: [assemble], capacity: 2}
+  - {id: test-1, type: inspection, capabilities: [test], capacity: 1}
+relations:
+  - {source: frame-1, target: press-1, kind: material_flow}
+  - {source: frame-2, target: press-2, kind: material_flow}
+  - {source: press-1, target: assy-1, kind: material_flow}
+  - {source: press-2, target: assy-1, kind: material_flow}
+  - {source: press-3, target: assy-1, kind: material_flow}
+  - {source: motor-1, target: assy-1, kind: material_flow}
+  - {source: motor-2, target: assy-1, kind: material_flow}
+  - {source: assy-1, target: test-1, kind: material_flow}
+workload:
+  arrival_process: {type: poisson, rate_per_min: 2.0}
+  mix:
+    - weight: 0.7
+      flow:
+        instance_prefix: prodA
+        steps:
+          - {id: frame, capability: frame, service_time: {type: exponential, mean_s: 40}}
+          - {id: motor, capability: motor, service_time: {type: exponential, mean_s: 50}}
+          - {id: press, capability: press-A, service_time: {type: uniform, low_s: 40, high_s: 50}, after: [frame]}
+          - {id: assemble, capability: assemble, service_time: {type: exponential, mean_s: 45}, after: [press, motor]}
+          - {id: test, capability: test, service_time: {type: uniform, low_s: 15, high_s: 25}, after: [assemble]}
+    - weight: 0.3
+      flow:
+        instance_prefix: prodB
+        steps:
+          - {id: frame, capability: frame, service_time: {type: exponential, mean_s: 40}}
+          - {id: motor, capability: motor, service_time: {type: exponential, mean_s: 50}}
+          - {id: press, capability: press-B, service_time: {type: uniform, low_s: 40, high_s: 50}, after: [frame]}
+          - {id: assemble, capability: assemble, service_time: {type: exponential, mean_s: 45}, after: [press, motor]}
+          - {id: test, capability: test, service_time: {type: uniform, low_s: 15, high_s: 25}, after: [assemble]}
+constraints:
+  - {id: nonnegative-capacity, kind: invariant}
+  - {id: precedence, kind: invariant}
+objectives:
+  - {id: throughput, kind: provisional}

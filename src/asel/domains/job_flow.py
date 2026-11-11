@@ -40,13 +40,26 @@ def world_init_payload(sc: Scenario) -> tuple[list[dict], list[dict], list[dict]
     return entities, relations, resources
 
 
+def _flow_steps(flow) -> list[tuple[str, str, object, list[str]]]:
+    return [(s.id, s.capability, s.service_time, list(s.after)) for s in flow.steps]
+
+
+def resolved_flows(sc: Scenario) -> list[tuple[float, str, list[tuple[str, str, object, list[str]]]]]:
+    """[(비율, 인스턴스 접두어, 단계 목록)]. 혼류가 아니면 항목 하나 (비율 1)."""
+    wl = sc.workload
+    if wl.mix is not None:
+        return [(m.weight, m.flow.instance_prefix, _flow_steps(m.flow)) for m in wl.mix]
+    prefix, steps = resolved_steps(sc)
+    return [(1.0, prefix, steps)]
+
+
 def resolved_steps(sc: Scenario) -> tuple[str, list[tuple[str, str, object, list[str]]]]:
     """(인스턴스 접두어, [(단계 id, capability, 처리시간 분포, 선행 단계 id들)]).
 
     job_template(사슬)은 0.1~0.3 시나리오와 사건 로그가 바이트 단위로 같도록 예전 이름 규칙을 쓴다."""
     wl = sc.workload
     if wl.flow is not None:
-        return wl.flow.instance_prefix, [(s.id, s.capability, s.service_time, list(s.after)) for s in wl.flow.steps]
+        return wl.flow.instance_prefix, _flow_steps(wl.flow)
     out, prev = [], None
     for i, s in enumerate(wl.job_template):
         sid = f"{i}-{s.capability}"
@@ -70,7 +83,9 @@ class JobFlowWorkload:
             ]
         else:
             self._segments = [(0.0, math.inf, 60.0 / ap.rate_per_min)]
-        self._prefix, self._steps = resolved_steps(sc)
+        self._flows = resolved_flows(sc)
+        self._mix = rng.get("mix") if len(self._flows) > 1 else None  # 혼류일 때만 쓰는 별도 난수 스트림
+        self._total_w = sum(w for w, _, _ in self._flows)
         self._count = 0
 
     def _sample(self, dist) -> float:
@@ -130,9 +145,19 @@ class JobFlowWorkload:
             return [self._fault_action(kind, n)], []
         assert kind == "arrival", kind
         self._count += 1
-        inst = f"{self._prefix}-{n:05d}"
+        if self._mix is None:
+            _, prefix, steps = self._flows[0]
+            extra = {}
+        else:
+            u, acc = self._mix.random() * self._total_w, 0.0
+            for w, prefix, steps in self._flows:
+                acc += w
+                if u < acc:
+                    break
+            extra = {"flow": prefix}  # 혼류에서만 붙인다 (기존 시나리오 사건 로그 불변)
+        inst = f"{prefix}-{n:05d}"
         actions: list[Action] = []
-        for i, (sid, capability, dist, after) in enumerate(self._steps):
+        for i, (sid, capability, dist, after) in enumerate(steps):
             actions.append(
                 Action(
                     ENV_ACTOR,
@@ -141,7 +166,7 @@ class JobFlowWorkload:
                         "id": f"{inst}/{sid}",
                         "capability": capability,
                         "predecessors": [f"{inst}/{a}" for a in after],
-                        "tags": {"order": inst, "step": i},
+                        "tags": {"order": inst, "step": i, **extra},
                     },
                     private={"duration": self._sample(dist)},
                 )
