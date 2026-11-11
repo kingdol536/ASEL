@@ -44,8 +44,16 @@ uv run python experiments/configs/reproduce.py check               # 전체 1,49
 ```
 
 저장소에 커밋된 실행 목록(`runs_index.csv`)대로 다시 실행해, 사건 로그의 SHA-256 이 기록과 바이트 단위로 같은지 대조한다.
-Claude 실행까지 재현하려면 응답 캐시(GitHub Release 자산 `llm-cache.zip`)를 풀고 `ASEL_LLM_DIR` 로 그 폴더를 지정한다.
-캐시가 없으면 Claude 실행은 건너뛰고 그 수를 따로 보고한다.
+재현은 항상 녹화된 응답만 쓴다(API 키 불필요, 호출 0). 캐시가 없으면 Claude 실행은 건너뛰고 그 수를 따로 보고한다.
+
+원자료와 Claude 응답 캐시는 GitHub Release [`data-v1`](https://github.com/kingdol536/ASEL/releases/tag/data-v1) 에 있다
+(체크섬: [`SHA256SUMS.txt`](experiments/reports/assets/data-v1/SHA256SUMS.txt)).
+
+```bash
+# Claude 실행까지 재현: llm-cache.zip 을 빈 폴더에 풀면 그 안에 cache/ 가 생긴다. 그 폴더를 지정
+ASEL_LLM_DIR=<푼 폴더> uv run python experiments/configs/reproduce.py check --sample 30
+# 원자료(실행별 사건 로그·manifest·평가): batches-<실험>.zip 을 저장소 루트에 풀면 experiments/batches/ 로 복원
+```
 
 실행 폴더에는 `events.ndjson`(공개 사건 로그), `private_events.ndjson`(숨겨진 참값, 평가기 전용),
 `final_state.json`, `scenario.json`, `manifest.json`(코드 커밋·설정 해시·시드·환경)이 남는다.

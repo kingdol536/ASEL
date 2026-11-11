@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _zip(src: Path, dest: Path, arc_root: str) -> None:
-    files = sorted(p for p in src.rglob("*") if p.is_file())
+    files = sorted(p for p in src.rglob("*") if p.is_file() and not p.name.endswith(".lock"))  # 잠금 파일은 데이터 아님
     with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for p in files:
             z.write(p, f"{arc_root}/{p.relative_to(src).as_posix()}")
