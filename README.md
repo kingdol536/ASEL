@@ -65,6 +65,7 @@ Claude 실행까지 재현하려면 응답 캐시(GitHub Release 자산 `llm-cac
 
 | 문서 | 읽는 이유 |
 |---|---|
+| **[한 장 요약](docs/SUMMARY.md)** | 연구 질문·환경·결과·결론·한계를 한 화면에 |
 | [연구 비전](docs/00-PROJECT-VISION.md) · [범위와 요구사항](docs/01-SCOPE-AND-REQUIREMENTS.md) | 목적, 확정/미확정 |
 | [아키텍처](docs/02-SYSTEM-ARCHITECTURE.md) · [세계 모델](docs/03-WORLD-MODEL.md) | 책임 경계·상태·인터페이스 |
 | [공통 언어](docs/11-COMMON-LANGUAGE.md) | 엔진의 부품(개념·관계·행동·사건) — 코드에서 자동 생성 |

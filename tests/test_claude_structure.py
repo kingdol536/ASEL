@@ -70,6 +70,15 @@ def test_switch_is_applied_and_calls_are_rate_limited(tmp_path):
     assert '"duration"' not in sent and "warehouse" not in sent.lower()
 
 
+def test_request_time_limits_are_not_sent_to_claude(tmp_path):
+    """C 의 요청 시간 제한(흐름별 timeout_s)은 구조 제어 프롬프트에 없다 (EXP-003 계획서 §3.2 의 정보 조건)."""
+    assert '"timeout_s"' in json.dumps(C.canonical_dump()["workload"])  # C 에는 시간 제한이 있다
+    fake = FakeStructureClient("none")
+    run_scenario(C, seed=4, structure_policy=spol(tmp_path, fake))
+    sent = json.dumps(fake.requests, ensure_ascii=False).lower()
+    assert fake.requests and "timeout" not in sent and "deadline" not in sent
+
+
 def test_none_decision_keeps_structure_fixed(tmp_path):
     fake = FakeStructureClient("none")
     res = run_scenario(C, seed=2, structure_policy=spol(tmp_path, fake))

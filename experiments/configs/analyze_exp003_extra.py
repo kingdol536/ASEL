@@ -204,7 +204,7 @@ def main() -> None:
     }
     text = json.dumps(out, indent=2, ensure_ascii=False, default=float)
     if len(sys.argv) > 1:
-        Path(sys.argv[1]).write_text(text + "\n", encoding="utf-8")
+        Path(sys.argv[1]).write_text(text + "\n", encoding="utf-8", newline="\n")
     print(text)
 
 
