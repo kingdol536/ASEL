@@ -70,6 +70,15 @@ def test_switch_is_applied_and_calls_are_rate_limited(tmp_path):
     assert '"duration"' not in sent and "warehouse" not in sent.lower()
 
 
+@pytest.mark.parametrize("text", ["[]", '"none"', "3"])
+def test_non_object_json_output_falls_back_instead_of_crashing(tmp_path, text):
+    """형식은 JSON 이지만 객체가 아닌 응답도 '형식 오류'로 대체한다 (실행 전체가 멈추면 안 된다)."""
+    res = run_scenario(C, seed=5, structure_policy=spol(tmp_path, FakeStructureClient(text=text)))
+    u = res.structure_usage
+    assert u["fallbacks"].get("bad_output", 0) == u["api_calls"] > 0
+    assert not any(e.event_type.startswith("Reconfiguration") for e in res.events)
+
+
 def test_request_time_limits_are_not_sent_to_claude(tmp_path):
     """C 의 요청 시간 제한(흐름별 timeout_s)은 구조 제어 프롬프트에 없다 (EXP-003 계획서 §3.2 의 정보 조건)."""
     assert '"timeout_s"' in json.dumps(C.canonical_dump()["workload"])  # C 에는 시간 제한이 있다

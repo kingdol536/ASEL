@@ -141,15 +141,15 @@ def finalize_interrupted_batch(batch_dir: Path, planned_seeds: list[int], note: 
     for d in run_dirs:
         m = json.loads((d / "manifest.json").read_text(encoding="utf-8"))
         done.append((_summary_row(m), d, m))
+    codes = {json.dumps(m["code"], sort_keys=True) for _, _, m in done}
+    if len(codes) != 1:  # 아무것도 쓰기 전에 검사한다
+        raise ValueError(f"runs in {batch_dir} come from different code revisions")
     done.sort(key=lambda x: (x[0]["scenario_id"], x[0]["policy"], x[0]["structure"], x[0]["seed"]))
     rows = [r for r, _, _ in done]
     eval_rows = [eval_row(write_evaluation(d)) for _, d, _ in done]
     (batch_dir / "batch_summary.csv").write_text(summary_csv(rows), encoding="utf-8", newline="\n")
     (batch_dir / "batch_eval.csv").write_text(summary_csv(eval_rows, EVAL_COLUMNS), encoding="utf-8", newline="\n")
 
-    codes = {json.dumps(m["code"], sort_keys=True) for _, _, m in done}
-    if len(codes) != 1:
-        raise ValueError(f"runs in {batch_dir} come from different code revisions")
     completed = sorted({r["seed"] for r in rows})
     first = done[0][2]
     info = {
@@ -161,7 +161,7 @@ def finalize_interrupted_batch(batch_dir: Path, planned_seeds: list[int], note: 
         "missing_seeds": sorted(set(planned_seeds) - set(completed)),
         "scenarios": sorted({r["scenario_id"] for r in rows}),
         "policies": sorted({r["policy"] for r in rows}),
-        "structure_policies": sorted({r["structure"] or "" for r in rows}),
+        "structure_policies": [s or None for s in sorted({r["structure"] for r in rows})],  # run_batch 처럼 없음 = null
         "extra": first.get("extra"),
         "n_runs": len(rows),
         "throughput": None,

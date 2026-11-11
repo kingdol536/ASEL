@@ -6,9 +6,11 @@ arm : a-free | s-free | a-claude | s-claude-haiku | s-claude-sonnet
 env : B | C
 seeds: 예) 0-1 (파일럿), 300-329 (평가)
 
-API 팔은 ASEL_LLM_MODE=record 로 실행한다 (실제 호출, 예산 장부 상한 적용).
-같은 명령을 replay 로 다시 돌리면 녹화된 응답으로 사건 로그가 바이트 단위로 재현된다:
-    ASEL_EXP003_MODE=replay uv run python experiments/configs/run_exp003.py ...
+기본은 replay: 녹화된 응답만 써서 사건 로그를 바이트 단위로 재현한다 (API 호출 0).
+실제 API 호출(record)은 비용이 들므로 팔별 예상 금액을 사용자에게 승인받은 뒤에만 명시적으로 켠다
+(결정 0004 사후 기록):
+    ASEL_EXP003_MODE=record uv run python experiments/configs/run_exp003.py ...
+EXP-003 본 실행·파일럿·탐색 실행은 2026-11-11 에 record 로 실행했다 (이 기본값을 바꾸기 전).
 
 계획서 밖 탐색적 실행은 ASEL_EXP003_PHASE=exploratory 로 따로 둔다 (사전 고정 분석에 섞이지 않음).
 """
@@ -57,7 +59,10 @@ def main() -> None:
     jobs = int(sys.argv[5]) if len(sys.argv) > 5 else 4
     cfg = ARMS[arm]
     if "claude" in arm:
-        os.environ["ASEL_LLM_MODE"] = os.environ.get("ASEL_EXP003_MODE", "record")
+        mode = os.environ.get("ASEL_EXP003_MODE", "replay")
+        if mode not in ("replay", "record"):
+            raise SystemExit(f"ASEL_EXP003_MODE 는 replay 또는 record ({mode!r})")
+        os.environ["ASEL_LLM_MODE"] = mode
         os.environ["ASEL_LLM_PROMPT"] = "v2-neutral"  # 배정 팔의 산업 중립 프롬프트 (계획서 §3.2)
         os.environ["ASEL_LLM_MODEL"] = "claude-haiku-5-5"
     # 탐색적 추가 실행(사전 고정 분석 밖)은 ASEL_EXP003_PHASE=exploratory 로 main 과 분리한다

@@ -15,6 +15,7 @@ Claude 실행은 replay(저장된 응답만, API 호출 0)로 다시 돌린다. 
 from __future__ import annotations
 
 import csv
+import functools
 import glob
 import hashlib
 import json
@@ -26,9 +27,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS = ROOT / "experiments" / "reports" / "assets"
 INDEX_DIR = {"EXP-001": ASSETS / "M3", "EXP-002": ASSETS / "M4", "EXP-003": ASSETS / "EXP-003"}
-COLS = ["run_id", "scenario_id", "seed", "policy", "prompt_version", "structure", "events_sha256",
+COLS = ["run_id", "scenario_id", "seed", "policy", "prompt_version", "model", "structure", "events_sha256",
         "private_events_sha256"]
-os.environ.setdefault("ASEL_LLM_MODE", "replay")
+# 재현은 항상 녹화된 응답만 쓴다. 환경에 record 가 남아 있어도 유료 호출이 나가지 않게 덮어쓴다
+os.environ["ASEL_LLM_MODE"] = "replay"
 
 
 def _uses_claude(row: dict) -> bool:
@@ -44,6 +46,7 @@ def make_index(exp: str, batch_dirs: list[str]) -> Path:
                 "run_id": m["run_id"], "scenario_id": m["scenario_id"], "seed": m["seed"],
                 "policy": m["policy"]["name"],
                 "prompt_version": (m["policy"].get("usage") or {}).get("prompt_version", ""),
+                "model": (m["policy"].get("usage") or {}).get("model", ""),
                 "structure": (m.get("structure_policy") or {}).get("name") or "",
                 "events_sha256": m["events_sha256"], "private_events_sha256": m["private_events_sha256"],
             })
@@ -57,6 +60,7 @@ def make_index(exp: str, batch_dirs: list[str]) -> Path:
     return out
 
 
+@functools.lru_cache(maxsize=1)
 def _scenario_paths() -> dict[str, Path]:
     from asel.io.scenario import load_scenario
 
@@ -76,7 +80,8 @@ def _check(row: dict) -> tuple[str, bool, str]:
     if pol == "claude":
         from asel.agents.claude_policy import ClaudePolicy
 
-        pol = ClaudePolicy(mode="replay", prompt_version=row["prompt_version"] or "v1-warehouse")
+        kw = {"model": row["model"]} if row.get("model") else {}  # 옛 실행 목록에는 모델 열이 없다 → 기본 모델
+        pol = ClaudePolicy(mode="replay", prompt_version=row["prompt_version"] or "v1-warehouse", **kw)
     res = run_scenario(sc, seed=int(row["seed"]), policy=pol, structure_policy=row["structure"] or None)
     pub = hashlib.sha256(encode_public(res.events)).hexdigest()
     priv = hashlib.sha256(encode_private(res.events)).hexdigest()

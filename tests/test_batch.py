@@ -73,5 +73,7 @@ def test_finalize_interrupted_batch_matches_normal_batch(tmp_path):
     assert info["interrupted"] is True and info["n_runs"] == 5
     assert info["completed_seeds"] == [0, 1, 2] and info["missing_seeds"] == []  # 시드 2 는 다른 시나리오에 남음
     assert info["invariant_violations_total"] == 0 and info["safety_boundary_all_ok"] is True
+    full_info = json.loads((full / "batch.json").read_text(encoding="utf-8"))
+    assert info["structure_policies"] == full_info["structure_policies"] == [None]  # 정상 배치와 같은 형식
     with pytest.raises(ValueError):
         finalize_interrupted_batch(cut, planned_seeds=[0, 1, 2], note="again")  # 이미 마무리됨

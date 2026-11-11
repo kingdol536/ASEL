@@ -429,7 +429,10 @@ class ClaudePolicy:
         if entry.get("stop_reason") not in ("end_turn", "stop_sequence"):
             return self._fall_back(f"stop_{entry.get('stop_reason')}", obs, affordances)
         try:
-            props = self._parse(json.loads(entry["text"]))
+            data = json.loads(entry["text"])
+            if not isinstance(data, dict):  # JSON 이지만 객체가 아니면 형식 오류 (배열·문자열·숫자)
+                raise TypeError("output is not a JSON object")
+            props = self._parse(data)
         except (ValueError, KeyError, TypeError):
             return self._fall_back("bad_output", obs, affordances)
         self._u["llm_decisions"] += 1

@@ -205,7 +205,7 @@ def evaluate_run(run_dir: Path) -> dict:
     s_calls_made = s_usage.get("llm_decisions", 0) + sum((s_usage.get("fallbacks") or {}).values())
     return {
         "evaluator_version": EVALUATOR_VERSION,
-        "experiment": "EXP-001",
+        "experiment": (manifest.get("extra") or {}).get("experiment"),  # 실행 manifest 의 실험 이름 (없으면 null)
         "run_id": manifest.get("run_id"),
         "scenario_id": manifest.get("scenario_id"),
         "seed": manifest.get("seed"),
