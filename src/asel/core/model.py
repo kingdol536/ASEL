@@ -47,6 +47,14 @@ class EntityMode:
     CHANGEOVER = "changeover"  # 전환 중: 작업 없음, changeover_s 뒤 새 역할
 
 
+def roles_over_ceiling(space: dict | None, capability_space: dict, roles) -> list[str]:
+    """천장 높이보다 높은 공간이 필요한 역할 (정렬). 공간 정보가 없으면 제약 없음 (#40)."""
+    if space is None:
+        return []
+    ceiling = float(space.get("ceiling_m", float("inf")))
+    return sorted(c for c in set(roles) if float(capability_space.get(c, {}).get("height_m", 0.0)) > ceiling)
+
+
 @dataclass
 class Entity:
     id: str
@@ -55,6 +63,8 @@ class Entity:
     properties: dict = field(default_factory=dict)
     # 재구성 옵션 (공개 설계 정보): {"options": [[...], ...], "changeover_s": float}. None 이면 재구성 불가
     reconfig: dict | None = None
+    # 정적 3D 배치 (결정 0007 안 A, #40): {"x","y","width","depth","ceiling_m"}. None 이면 공간 제약 없음
+    space: dict | None = None
     mode: str = EntityMode.NORMAL
     target_capabilities: tuple[str, ...] | None = None
     mode_since: float | None = None
@@ -106,6 +116,8 @@ class Task:
 class WorldState:
     version: int = 0
     structure_version: int = 0  # 구조(셀 역할) 변경 완료마다 1 증가
+    objective: dict | None = None  # 현재 운영 목표 {id, kind, params} — 공개 정보 (#38). 채점식은 평가기 전용
+    capability_space: dict = field(default_factory=dict)  # 역할별 공간 요구 {capability: {"height_m"}} (#40)
     sim_time: float = 0.0
     entities: dict[str, Entity] = field(default_factory=dict)
     relations: list[Relation] = field(default_factory=list)
@@ -114,7 +126,7 @@ class WorldState:
 
     def snapshot(self) -> dict:
         """비교·해시용 정규화 표현. 키 순서와 무관하게 동일 상태면 동일 dict."""
-        return {
+        snap = {
             "version": self.version,
             "structure_version": self.structure_version,
             "sim_time": self.sim_time,
@@ -127,6 +139,7 @@ class WorldState:
                     "mode": e.mode,
                     "target_capabilities": list(e.target_capabilities) if e.target_capabilities else None,
                     "mode_since": e.mode_since,
+                    **({"space": e.space} if e.space is not None else {}),
                 }
                 for k, e in sorted(self.entities.items())
             },
@@ -154,3 +167,8 @@ class WorldState:
                 for k, t in sorted(self.tasks.items())
             },
         }
+        if self.objective is not None:
+            snap["objective"] = self.objective  # 목표가 있는 세계에서만 (이전 실행의 최종 상태 형식 유지)
+        if self.capability_space:
+            snap["capability_space"] = self.capability_space
+        return snap

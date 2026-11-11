@@ -1,0 +1,257 @@
+# 생성 파일 (assembly-line-b.yaml + 정적 3D 배치). 설명은 notes.
+schema_version: '0.4'
+scenario_id: assembly-line-b-3d
+domain: job_flow
+seed: 42
+sim_time_limit: 3600.0
+entities:
+- id: frame-1
+  type: machining
+  capabilities:
+  - frame
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 0.0
+    y: 0.0
+    width: 4.0
+    depth: 3.0
+    ceiling_m: 6.0
+- id: frame-2
+  type: machining
+  capabilities:
+  - frame
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 0.0
+    y: 4.0
+    width: 4.0
+    depth: 3.0
+    ceiling_m: 6.0
+- id: motor-1
+  type: subassembly
+  capabilities:
+  - motor
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 0.0
+    y: 8.0
+    width: 3.0
+    depth: 3.0
+    ceiling_m: 6.0
+- id: motor-2
+  type: subassembly
+  capabilities:
+  - motor
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 0.0
+    y: 12.0
+    width: 3.0
+    depth: 3.0
+    ceiling_m: 6.0
+- id: press-1
+  type: press
+  capabilities:
+  - press-A
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 6.0
+    y: 0.0
+    width: 4.0
+    depth: 4.0
+    ceiling_m: 6.0
+- id: press-2
+  type: press
+  capabilities:
+  - press-B
+  capacity: 1
+  properties: {}
+  reconfigurable:
+    options:
+    - - press-A
+    - - press-B
+    changeover_s: 90.0
+  space:
+    x: 6.0
+    y: 5.0
+    width: 4.0
+    depth: 4.0
+    ceiling_m: 3.2
+- id: press-3
+  type: press
+  capabilities:
+  - press-B
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 6.0
+    y: 10.0
+    width: 4.0
+    depth: 4.0
+    ceiling_m: 6.0
+- id: assy-1
+  type: assembly
+  capabilities:
+  - assemble
+  capacity: 2
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 12.0
+    y: 4.0
+    width: 6.0
+    depth: 6.0
+    ceiling_m: 6.0
+- id: test-1
+  type: inspection
+  capabilities:
+  - test
+  capacity: 1
+  properties: {}
+  reconfigurable: null
+  space:
+    x: 20.0
+    y: 5.0
+    width: 3.0
+    depth: 3.0
+    ceiling_m: 6.0
+relations:
+- source: frame-1
+  target: press-1
+  kind: material_flow
+- source: frame-2
+  target: press-2
+  kind: material_flow
+- source: press-1
+  target: assy-1
+  kind: material_flow
+- source: press-2
+  target: assy-1
+  kind: material_flow
+- source: press-3
+  target: assy-1
+  kind: material_flow
+- source: motor-1
+  target: assy-1
+  kind: material_flow
+- source: motor-2
+  target: assy-1
+  kind: material_flow
+- source: assy-1
+  target: test-1
+  kind: material_flow
+workload:
+  arrival_process:
+    type: poisson
+    rate_per_min: 2.0
+  mix:
+  - weight: 0.7
+    flow:
+      steps:
+      - id: frame
+        capability: frame
+        service_time:
+          type: exponential
+          mean_s: 40.0
+        after: []
+      - id: motor
+        capability: motor
+        service_time:
+          type: exponential
+          mean_s: 50.0
+        after: []
+      - id: press
+        capability: press-A
+        service_time:
+          type: uniform
+          low_s: 40.0
+          high_s: 50.0
+        after:
+        - frame
+      - id: assemble
+        capability: assemble
+        service_time:
+          type: exponential
+          mean_s: 45.0
+        after:
+        - press
+        - motor
+      - id: test
+        capability: test
+        service_time:
+          type: uniform
+          low_s: 15.0
+          high_s: 25.0
+        after:
+        - assemble
+      instance_prefix: prodA
+      timeout_s: null
+  - weight: 0.3
+    flow:
+      steps:
+      - id: frame
+        capability: frame
+        service_time:
+          type: exponential
+          mean_s: 40.0
+        after: []
+      - id: motor
+        capability: motor
+        service_time:
+          type: exponential
+          mean_s: 50.0
+        after: []
+      - id: press
+        capability: press-B
+        service_time:
+          type: uniform
+          low_s: 40.0
+          high_s: 50.0
+        after:
+        - frame
+      - id: assemble
+        capability: assemble
+        service_time:
+          type: exponential
+          mean_s: 45.0
+        after:
+        - press
+        - motor
+      - id: test
+        capability: test
+        service_time:
+          type: uniform
+          low_s: 15.0
+          high_s: 25.0
+        after:
+        - assemble
+      instance_prefix: prodB
+      timeout_s: null
+  max_arrivals: null
+faults: []
+constraints:
+- id: nonnegative-capacity
+  kind: invariant
+- id: precedence
+  kind: invariant
+objectives:
+- id: throughput
+  kind: provisional
+capability_space:
+  press-A:
+    height_m: 3.8
+  press-B:
+    height_m: 3.0
+notes: 환경 B + 정적 3D 배치 (#40). press-2 는 메자닌 아래(천장 3.2m), press-A 금형은 3.8m 필요 → 2D
+  에서 가능하던 press-2→press-A 전환이 3D 에서는 불가능. 수치는 가상 값.

@@ -1,0 +1,16 @@
+{
+  "env": "assembly-line-b",
+  "base": "e935739",
+  "after": "91b040c",
+  "core_diff_lines": 0,
+  "engine_diff_lines": 26,
+  "adapter_lines": 35,
+  "config_lines": 64,
+  "public_interface_changes": 0,
+  "public_interface_added": [],
+  "public_interface_removed": [],
+  "new_concepts": 0,
+  "concepts_added": [],
+  "concepts_removed": [],
+  "config_only_ratio": 0.512
+}

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from asel.core.model import EntityMode, TaskStatus, WorldState
+from asel.core.model import EntityMode, TaskStatus, WorldState, roles_over_ceiling
 
 _DONE_OR_RUNNING = {TaskStatus.RUNNING, TaskStatus.COMPLETED}
 
@@ -49,6 +49,10 @@ def check_invariants(state: WorldState) -> list[str]:
             v.append(f"entity {e.id}: normal mode with pending target")
         if e.mode != EntityMode.NORMAL and e.target_capabilities is None:
             v.append(f"entity {e.id}: {e.mode} without target")
+        # 3D 공간: 개체의 역할(과 전환 목표)이 그 자리 천장 높이 안에 들어간다 (#40)
+        for c in roles_over_ceiling(e.space, state.capability_space,
+                                    set(e.capabilities) | set(e.target_capabilities or ())):
+            v.append(f"entity {e.id}: role {c} does not fit under ceiling {e.space['ceiling_m']} m")
 
     for t in state.tasks.values():
         preds = [state.tasks.get(p) for p in t.predecessors]

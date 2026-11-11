@@ -1,0 +1,31 @@
+{
+  "env": "m5-total",
+  "base": "e935739",
+  "after": "68b5a2c",
+  "core_diff_lines": 92,
+  "engine_diff_lines": 273,
+  "adapter_lines": 58,
+  "config_lines": 396,
+  "public_interface_changes": 7,
+  "public_interface_added": [
+    "actions.ActionKind.CANCEL_TASKS=cancel_tasks",
+    "actions.ActionKind.SET_OBJECTIVE=set_objective",
+    "events.EventType.OBJECTIVE_CHANGED=ObjectiveChanged",
+    "model.Entity.space",
+    "model.WorldState.capability_space",
+    "model.WorldState.objective",
+    "world.World.clearance_violations()"
+  ],
+  "public_interface_removed": [],
+  "new_concepts": 6,
+  "concepts_added": [
+    "ACTIONS:ActionKind.CANCEL_TASKS",
+    "ACTIONS:ActionKind.SET_OBJECTIVE",
+    "EVENTS:EventType.OBJECTIVE_CHANGED",
+    "VALUE_CONCEPTS:'capability_space'",
+    "VALUE_CONCEPTS:'objective'",
+    "VALUE_CONCEPTS:'space'"
+  ],
+  "concepts_removed": [],
+  "config_only_ratio": 0.4835
+}

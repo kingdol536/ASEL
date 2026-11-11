@@ -51,3 +51,28 @@ class OrderAgePolicy:
 
     def usage(self) -> dict:
         return {}
+
+
+class ObjectiveAwarePolicy:
+    """목표를 읽는 기준 정책 (#38, 잠정). 관측의 objective 만 본다 (채점식은 모른다).
+
+    - kind == "priority": params.flow 에 해당하는 작업 묶음을 먼저 (그 안에서는 준비 순서)
+    - 그 밖(예: "throughput"): FIFO 와 같다
+    """
+
+    name = "objective-aware"
+
+    def reset(self, context: PolicyContext) -> None:
+        pass
+
+    def decide(self, obs: Observation, affordances: list[ActionSpec]) -> list[ActionProposal]:
+        obj = obs.objective or {}
+        target = obj.get("params", {}).get("flow") if obj.get("kind") == "priority" else None
+        ready = sorted(
+            (t for t in obs.open_tasks if t["status"] == "READY"),
+            key=lambda t: (target is not None and t.get("flow") != target, t["ready_at"], t["created_index"]),
+        )
+        return greedy_assign(obs, ready, sorted(obs.cells, key=lambda c: c["id"]))
+
+    def usage(self) -> dict:
+        return {}

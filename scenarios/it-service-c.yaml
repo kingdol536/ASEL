@@ -1,0 +1,75 @@
+# 환경 C: IT 서비스 요청 처리 (미공개 이식성 시험, 설계 문서 experiments/plans/ENV-C-DESIGN.md).
+# 모든 수치는 기능 검증용 가상 값이다. 시간 단위는 초.
+#
+# 부품 조립:
+#   - 요청 종류 혼류: 읽기-캐시적중 50% / 읽기-캐시실패 20% / 쓰기 20% / 배치 10%
+#   - 캐시 실패 읽기: 앱 → (DB · 검색 병렬) → 렌더(합류)
+#   - 서버 풀 동시 처리 수 = 용량, 인스턴스 재배치 = 재구성(워밍업 60s), 장애 = 고장
+#   - 요청 시간 초과 = 흐름 timeout_s (아직 시작하지 않은 단계를 포기)
+#   - 트래픽 급증: 300~600s 도착률 3배
+schema_version: "0.4"
+scenario_id: it-service-c
+domain: job_flow
+seed: 42
+sim_time_limit: 1200
+entities:
+  - {id: gw-1, type: gateway, capabilities: [gateway], capacity: 4}
+  - {id: app-1, type: instance, capabilities: [app], capacity: 1}
+  - id: app-2
+    type: instance
+    capabilities: [app]
+    capacity: 1
+    reconfigurable: {options: [[app], [worker]], changeover_s: 60}
+  - {id: worker-1, type: instance, capabilities: [worker], capacity: 2}
+  - {id: cache-1, type: cache, capabilities: [cache], capacity: 8}
+  - {id: db-1, type: database, capabilities: [db], capacity: 2}
+  - {id: search-1, type: search, capabilities: [search], capacity: 2}
+relations:
+  - {source: gw-1, target: app-1, kind: request_flow}
+  - {source: gw-1, target: app-2, kind: request_flow}
+  - {source: app-1, target: db-1, kind: request_flow}
+  - {source: app-1, target: cache-1, kind: request_flow}
+  - {source: app-1, target: search-1, kind: request_flow}
+workload:
+  arrival_process:
+    type: piecewise_poisson
+    segments:
+      - {start_s: 0, rate_per_min: 30}
+      - {start_s: 300, rate_per_min: 90}
+      - {start_s: 600, rate_per_min: 30}
+  mix:
+    - weight: 0.5
+      flow:
+        instance_prefix: rhit
+        timeout_s: 10
+        steps:
+          - {id: gw, capability: gateway, service_time: {type: constant, value_s: 0.2}}
+          - {id: app, capability: app, service_time: {type: exponential, mean_s: 1.0}, after: [gw]}
+          - {id: cache, capability: cache, service_time: {type: uniform, low_s: 0.05, high_s: 0.1}, after: [app]}
+    - weight: 0.2
+      flow:
+        instance_prefix: rmiss
+        timeout_s: 10
+        steps:
+          - {id: gw, capability: gateway, service_time: {type: constant, value_s: 0.2}}
+          - {id: app, capability: app, service_time: {type: exponential, mean_s: 1.0}, after: [gw]}
+          - {id: db, capability: db, service_time: {type: exponential, mean_s: 2.0}, after: [app]}
+          - {id: search, capability: search, service_time: {type: exponential, mean_s: 1.5}, after: [app]}
+          - {id: render, capability: app, service_time: {type: constant, value_s: 0.3}, after: [db, search]}
+    - weight: 0.2
+      flow:
+        instance_prefix: write
+        timeout_s: 15
+        steps:
+          - {id: gw, capability: gateway, service_time: {type: constant, value_s: 0.2}}
+          - {id: app, capability: app, service_time: {type: exponential, mean_s: 1.5}, after: [gw]}
+          - {id: db, capability: db, service_time: {type: exponential, mean_s: 2.0}, after: [app]}
+    - weight: 0.1
+      flow:
+        instance_prefix: batch
+        steps:
+          - {id: run, capability: worker, service_time: {type: exponential, mean_s: 30}}
+constraints:
+  - {id: nonnegative-capacity, kind: invariant}
+objectives:
+  - {id: latency, kind: provisional}

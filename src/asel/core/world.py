@@ -27,6 +27,7 @@ from asel.core.model import (
     TaskStatus,
     WorldState,
     is_allowed_transition,
+    roles_over_ceiling,
 )
 
 ENV_ACTOR = "env"
@@ -39,6 +40,10 @@ class ReducerError(RuntimeError):
 # ---------------------------------------------------------------------------
 # Reducer: 이벤트 -> 상태 변경. World 와 replay 가 공유한다.
 # ---------------------------------------------------------------------------
+
+
+# 아직 시작하지 않은 작업 (cancel_tasks 대상, #41)
+_CANCELLABLE = (TaskStatus.CREATED, TaskStatus.WAITING, TaskStatus.READY, TaskStatus.BLOCKED)
 
 
 def apply_event(state: WorldState, ev: Event) -> None:
@@ -60,9 +65,11 @@ def apply_event(state: WorldState, ev: Event) -> None:
                 capabilities=tuple(e["capabilities"]),
                 properties=dict(e.get("properties", {})),
                 reconfig=e.get("reconfig"),
+                space=e.get("space"),
             )
         for r in p["relations"]:
             state.relations.append(Relation(source=r["source"], target=r["target"], kind=r["kind"]))
+        state.capability_space = dict(p.get("capability_space", {}))
         for r in p["resources"]:
             state.resources[r["id"]] = Resource(id=r["id"], capacity=int(r["capacity"]))
 
@@ -155,6 +162,9 @@ def apply_event(state: WorldState, ev: Event) -> None:
         ent.mode_since = ev.sim_time
         state.structure_version += 1
 
+    elif et == EventType.OBJECTIVE_CHANGED:
+        state.objective = dict(p["objective"])
+
     elif et in (EventType.ACTION_PROPOSED, EventType.ACTION_REJECTED, EventType.RUN_ENDED):
         pass  # 상태 변경 없음 (시각만 갱신)
 
@@ -228,16 +238,14 @@ class World:
         entities: list[dict],
         relations: list[dict],
         resources: list[dict],
+        capability_space: dict | None = None,
     ) -> None:
         if self._initialized:
             raise RuntimeError("already initialized")
-        self._emit(
-            ENV_ACTOR,
-            EventType.WORLD_INITIALIZED,
-            None,
-            {"entities": entities, "relations": relations, "resources": resources},
-            version=0,
-        )
+        payload = {"entities": entities, "relations": relations, "resources": resources}
+        if capability_space:
+            payload["capability_space"] = capability_space  # 공간 요구가 있는 세계에서만 (이전 사건 형식 유지)
+        self._emit(ENV_ACTOR, EventType.WORLD_INITIALIZED, None, payload, version=0)
         self._initialized = True
 
     def advance_to(self, t: float) -> None:
@@ -306,7 +314,43 @@ class World:
             r += self._validate_request_reconfiguration(action.params)
         elif action.kind == ActionKind.COMPLETE_RECONFIGURATION:
             r += self._validate_complete_reconfiguration(action.params)
+        elif action.kind == ActionKind.CANCEL_TASKS:
+            r += self._validate_cancel(action.params)
+        elif action.kind == ActionKind.SET_OBJECTIVE:
+            r += self._validate_objective(action.params)
         return r
+
+    def _validate_objective(self, p: dict) -> list[str]:
+        """코어는 목표의 형식만 본다 (id·kind 문자열, params dict). 목표 종류의 의미는 정책·평가기 몫."""
+        o = p.get("objective")
+        if not isinstance(o, dict) or set(o) != {"id", "kind", "params"}:
+            return ["set_objective: objective must be {id, kind, params}"]
+        if not (isinstance(o["id"], str) and o["id"] and isinstance(o["kind"], str) and o["kind"]):
+            return ["set_objective: id and kind must be non-empty strings"]
+        if not isinstance(o["params"], dict):
+            return ["set_objective: params must be a dict"]
+        return []
+
+    def _validate_cancel(self, p: dict) -> list[str]:
+        ids = p.get("tasks")
+        if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+            return ["cancel_tasks: tasks must be a non-empty list of task ids"]
+        if len(set(ids)) != len(ids):
+            return ["cancel_tasks: duplicate task ids"]
+        missing = [x for x in ids if x not in self.state.tasks]
+        if missing:
+            return [f"cancel_tasks: unknown tasks {missing[:3]}"]
+        # 취소되는 작업의 아직 끝나지 않은 후속 작업도 함께 취소해야 한다 (고아 작업 방지)
+        chosen, orphans = set(ids), []
+        for x in ids:
+            if self.state.tasks[x].status in _CANCELLABLE:
+                orphans += [s for s in self._successors.get(x, [])
+                            if s not in chosen and self.state.tasks[s].status in _CANCELLABLE]
+        return [f"cancel_tasks: successors would be orphaned {sorted(set(orphans))[:3]}"] if orphans else []
+
+    def clearance_violations(self, ent: Entity, caps) -> list[str]:
+        """천장 높이보다 높은 공간이 필요한 역할 목록. 공간 정보가 없으면 제약 없음."""
+        return roles_over_ceiling(ent.space, self.state.capability_space, caps)
 
     def offered_capabilities(self, override: tuple[str, tuple[str, ...]] | None = None) -> set[str]:
         """용량이 있는 셀이 (전환이 끝났을 때) 제공하게 될 capability 집합.
@@ -339,6 +383,10 @@ class World:
             return [f"request_reconfiguration: {list(target)} is not an option for {ent.id}"]
         if target == tuple(sorted(ent.capabilities)):
             return [f"request_reconfiguration: {ent.id} already has {list(target)}"]
+        short = self.clearance_violations(ent, target)
+        if short:
+            # 3D 고유 제약: 2D 배치로는 보이지 않는 높이 제약 (결정 0007 안 A)
+            return [f"request_reconfiguration: insufficient clearance at {ent.id} for {short}"]
         lost = self.offered_capabilities() - self.offered_capabilities((ent.id, target))
         if lost:
             # 교착 방지: 마지막 제공 셀의 역할을 빼면 그 capability 작업이 영원히 대기한다
@@ -518,6 +566,19 @@ class World:
         if a.kind == ActionKind.COMPLETE_RECONFIGURATION:
             ent = self.state.entities[p["entity"]]
             return [(EventType.RECONFIGURATION_COMPLETED, ent.id, {"capabilities": list(ent.target_capabilities)}, None)]
+
+        if a.kind == ActionKind.SET_OBJECTIVE:
+            return [(EventType.OBJECTIVE_CHANGED, None, {"objective": dict(p["objective"])}, None)]
+
+        if a.kind == ActionKind.CANCEL_TASKS:
+            # 아직 시작하지 않은 작업만 취소한다. 진행 중 작업은 끝까지 처리하고(자원 회계 단순화),
+            # 이미 끝난 작업은 그대로 둔다. 취소할 것이 없으면 효과 없이 수락된다.
+            cancellable = _CANCELLABLE
+            return [
+                (EventType.TASK_STATE_CHANGED, tid, {"from": str(self.state.tasks[tid].status), "to": "CANCELLED"}, None)
+                for tid in p["tasks"]
+                if self.state.tasks[tid].status in cancellable
+            ]
 
         raise AssertionError(f"unhandled kind {a.kind}")
 

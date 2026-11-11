@@ -42,7 +42,7 @@ PRICES = {
 PRICES_AS_OF = "2026-11-03"
 CACHE_WRITE_MULT = 1.25
 
-SYSTEM_PROMPT = """You dispatch work in a simulated warehouse made of work cells.
+SYSTEM_PROMPT_V1 = """You dispatch work in a simulated warehouse made of work cells.
 Each decision you see the current observation: cells (capabilities, free capacity) and open tasks.
 Choose which READY tasks to start now and on which cell, using only the listed candidate pairs.
 Rules:
@@ -51,6 +51,22 @@ Rules:
 - You may choose fewer assignments than possible, or none, if you have a reason.
 Task processing times are not visible to you. Base decisions only on the observation.
 Reply with the JSON object described by the output schema. Keep "reason" to one short sentence."""
+
+# 산업 중립 프롬프트 (#35, #39). 관측의 "order" 는 '작업 묶음 인스턴스 id' 다.
+SYSTEM_PROMPT_V2 = """You dispatch work in a simulated work system made of cells (stations).
+Each decision you see the current observation: cells (capabilities, free capacity) and open tasks.
+Tasks belong to job instances (the "order" field); a task can start only after its predecessors finish.
+Choose which READY tasks to start now and on which cell, using only the listed candidate pairs.
+Rules:
+- Use each task at most once.
+- Do not assign more tasks to a cell than its "available" count.
+- You may choose fewer assignments than possible, or none, if you have a reason.
+Task processing times are not visible to you. Base decisions only on the observation.
+Reply with the JSON object described by the output schema. Keep "reason" to one short sentence."""
+
+# 프롬프트 버전. 버전마다 캐시 키가 달라지므로 기존 녹화(EXP-001 = v1-warehouse)는 그대로 재생된다.
+PROMPTS = {"v1-warehouse": SYSTEM_PROMPT_V1, "v2-neutral": SYSTEM_PROMPT_V2}
+SYSTEM_PROMPT = SYSTEM_PROMPT_V1  # 이전 이름 호환
 
 OUTPUT_SCHEMA = {
     "type": "object",
@@ -315,6 +331,7 @@ class ClaudePolicy:
     timeout_s: float = 30.0
     max_retries: int = 1  # SDK 자동 재시도. 예산 예약은 (max_retries + 1) 회 시도분으로 잡는다
     cache_tag: str = "v1"  # 녹화 묶음 이름. 다시 녹화할 때 바꾸면 이전 응답과 섞이지 않는다
+    prompt_version: str = "v1-warehouse"  # 기본값은 EXP-001 녹화와 같은 프롬프트 (재생 유지). 새 환경은 v2-neutral
     client: object | None = None  # 테스트에서는 가짜 클라이언트를 넣는다
     cache: ResponseCache | None = None
     guard: BudgetGuard | None = None
@@ -325,6 +342,8 @@ class ClaudePolicy:
     def __post_init__(self):
         if self.mode not in ("replay", "record"):
             raise ValueError("mode must be 'replay' or 'record'")
+        if self.prompt_version not in PROMPTS:
+            raise ValueError(f"unknown prompt_version {self.prompt_version!r}; choose from {sorted(PROMPTS)}")
         if self.model not in PRICES:
             raise ValueError(f"no price entry for {self.model}; add it before use")
         llm_dir = default_llm_dir()
@@ -340,6 +359,7 @@ class ClaudePolicy:
             "fallbacks": {}, "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
             "cache_creation_input_tokens": 0, "usd_estimate": 0.0, "usd_charged_unknown": 0.0,
             "latency_ms_total": 0.0, "api_key_env": API_KEY_ENV, "cache_tag": self.cache_tag,
+            "prompt_version": self.prompt_version,
         }
 
     # -- 규약 --------------------------------------------------------------------
@@ -362,7 +382,7 @@ class ClaudePolicy:
         request = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": SYSTEM_PROMPT,
+            "system": PROMPTS[self.prompt_version],
             "messages": [{"role": "user", "content": user}],
             "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
         }
@@ -413,7 +433,7 @@ class ClaudePolicy:
 
     def _call(self, request: dict, user: str) -> tuple[dict | None, str]:
         # 최악 비용: 입력은 문자 수/2 토큰으로 넉넉히 추정(실제보다 크게), 출력은 max_tokens 전부
-        est_in = (len(SYSTEM_PROMPT) + len(user)) // 2 + 500
+        est_in = (len(PROMPTS[self.prompt_version]) + len(user)) // 2 + 500
         attempts = self.max_retries + 1
         worst = estimate_cost_usd(self.model, est_in, self.max_tokens) * attempts
         ok, rid = self.guard.reserve(worst, attempts=attempts)

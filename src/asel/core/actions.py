@@ -13,6 +13,8 @@ class ActionKind:
     END_OUTAGE = "end_outage"
     REQUEST_RECONFIGURATION = "request_reconfiguration"
     COMPLETE_RECONFIGURATION = "complete_reconfiguration"
+    CANCEL_TASKS = "cancel_tasks"  # 기한 초과 등으로 아직 시작하지 않은 작업을 포기 (환경 C 이식, #41)
+    SET_OBJECTIVE = "set_objective"  # 운영 목표 변경 (환경, #38)
 
 
 KNOWN_ACTION_KINDS = frozenset(
@@ -24,6 +26,8 @@ KNOWN_ACTION_KINDS = frozenset(
         ActionKind.END_OUTAGE,
         ActionKind.REQUEST_RECONFIGURATION,
         ActionKind.COMPLETE_RECONFIGURATION,
+        ActionKind.CANCEL_TASKS,
+        ActionKind.SET_OBJECTIVE,
     }
 )
 

@@ -19,7 +19,7 @@ def test_view_from_public_log_only(tmp_path):
     out = render_run(run_dir)
     page = out.read_text(encoding="utf-8")
     assert (run_dir / PUBLIC_LOG).read_bytes() == before  # 뷰어가 로그를 바꾸지 않음
-    assert page.startswith("<!doctype html>") and page.count("<svg") == 3
+    assert page.startswith("<!doctype html>") and page.count("<svg") == 4  # 그래프·흐름 1종·타임라인·대기
     for eid in ("cell-pick-1", "cell-pack-1", "cell-flex-1"):
         assert eid in page
     assert 'class="outage"' in page
@@ -54,3 +54,25 @@ def test_view_shows_reconfiguration(tmp_path):
     n = sum(1 for e in res.events if e.event_type == "ReconfigurationCompleted")
     assert page.count('class="changeover"') == n > 0
     assert "역할 전환 중" in page and "→pack" in page
+
+
+def test_view_shows_flows_cancellations_and_objectives(tmp_path):
+    from asel.io.scenario import Scenario
+
+    d = load_scenario(ROOT / "scenarios" / "it-service-c.yaml").canonical_dump()
+    d["sim_time_limit"] = 420.0
+    d["objective_schedule"] = [{"at_s": 0, "id": "vol", "kind": "throughput"},
+                               {"at_s": 300, "id": "fast-writes", "kind": "priority", "params": {"flow": "write"}}]
+    res = run_scenario(Scenario.model_validate(d), seed=0)
+    run_dir = write_run(res, tmp_path)
+    before = (run_dir / PUBLIC_LOG).read_bytes()
+    page = render_run(run_dir).read_text(encoding="utf-8")
+    assert (run_dir / PUBLIC_LOG).read_bytes() == before
+    for prefix in ("rhit", "rmiss", "write", "batch"):
+        assert f'aria-label="{prefix} 공정 흐름"' in page
+    assert page.count('class="objective"') == 4  # 목표 변경 2회 x (타임라인 + 대기 그래프)
+    assert "취소된 작업 묶음" in page
+    from asel.viewer2d import build_view
+
+    v = build_view(res.events)
+    assert set(v.flows["rmiss"]["edges"]) >= {("db", "render"), ("search", "render")}  # 합류

@@ -22,7 +22,7 @@ from asel.core.events import Event
 from asel.evaluation.bottleneck import structure_metrics
 from asel.io.eventlog import PRIVATE_LOG, PUBLIC_LOG
 
-EVALUATOR_VERSION = "eval-0.4"  # 0.2: 대체 제안 분리 / 0.3: 병목·재구성 지표 / 0.4: 비우는 중 셀 용량·잃은 용량 정의 수정
+EVALUATOR_VERSION = "eval-0.5"  # 0.2 대체 제안 분리 / 0.3 병목 / 0.4 비우는 중 용량 / 0.5 묶음 완료=전체 작업, 취소, 목표 구간
 HIDDEN_PUBLIC_KEYS = ("duration", "action_private", "cause", "planned_end_s", "fault_index")
 
 
@@ -41,28 +41,35 @@ def _mean(xs):
 
 
 def order_metrics(events) -> dict:
+    """작업 묶음(태그 "order") 단위 처리 시간. 묶음은 **모든 작업이 끝났을 때** 완료로 본다
+    (갈라짐·합침 흐름에서 끝 단계가 여러 개여도 맞다, #34. 일직선 사슬에서는 마지막 단계 완료와 같다)."""
     arrival: dict[str, float] = {}
-    last_step: dict[str, int] = {}
-    task_order: dict[str, tuple[str, int]] = {}
+    task_order: dict[str, str] = {}
+    remaining: dict[str, int] = {}
     done_at: dict[str, float] = {}
+    cancelled: set[str] = set()
     end_time = 0.0
     for e in events:
         end_time = max(end_time, e.sim_time)
         if e.event_type == "TaskCreated":
             tags = e.payload.get("tags", {})
-            order, step = tags.get("order"), tags.get("step")
-            if order is None or step is None:
+            order = tags.get("order")
+            if order is None:
                 continue
-            task_order[e.entity_id] = (order, step)
+            task_order[e.entity_id] = order
             arrival.setdefault(order, e.sim_time)
-            last_step[order] = max(last_step.get(order, -1), step)
+            remaining[order] = remaining.get(order, 0) + 1
         elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "COMPLETED":
-            if e.entity_id in task_order:
-                order, step = task_order[e.entity_id]
-                if step == last_step[order]:
+            order = task_order.get(e.entity_id)
+            if order is not None:
+                remaining[order] -= 1
+                if remaining[order] == 0:
                     done_at[order] = e.sim_time
+        elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "CANCELLED":
+            if e.entity_id in task_order:
+                cancelled.add(task_order[e.entity_id])
     flow = [done_at[o] - arrival[o] for o in done_at]
-    open_ages = [end_time - arrival[o] for o in arrival if o not in done_at]
+    open_ages = [end_time - arrival[o] for o in arrival if o not in done_at and o not in cancelled]
     return {
         "orders_arrived": len(arrival),
         "orders_completed": len(done_at),
@@ -75,9 +82,61 @@ def order_metrics(events) -> dict:
             "n": len(flow),
         },
         # 끝나지 않은 주문(중도절단): 종료 시점까지의 경과 시간. 처리 시간 통계에 넣지 않고 따로 보고한다.
+        # 일부 작업이 취소(예: 시간 초과)된 묶음 수. 이 묶음은 완료되지 않으므로 처리 시간 통계에 없다
+        "orders_cancelled": len(cancelled),
         "orders_censored": {"n": len(open_ages), "age_at_end_mean_s": _mean(open_ages),
                             "age_at_end_max_s": max(open_ages) if open_ages else None},
     }
+
+
+def objective_segments(events) -> list[dict]:
+    """운영 목표 구간별 채점 (#38, 평가기 전용 — 정책 관측에는 채점식이 없다).
+
+    구간 = 한 목표가 유지된 시간. 그 구간에 **도착한** 작업 묶음을 그 목표로 채점한다 (잠정, R-07 미결정).
+    - kind "throughput": 구간에 도착해 완료된 묶음 수 / 시간(시간당)
+    - kind "priority": params.flow 묶음의 평균 처리 시간 (낮을수록 좋음), 그 밖 묶음 평균도 함께
+    """
+    changes, arrival, flow_of, remaining, done_at = [], {}, {}, {}, {}
+    task_order = {}
+    end_time = 0.0
+    for e in events:
+        end_time = max(end_time, e.sim_time)
+        if e.event_type == "ObjectiveChanged":
+            changes.append((e.sim_time, e.payload["objective"]))
+        elif e.event_type == "TaskCreated":
+            tags = e.payload.get("tags", {})
+            o = tags.get("order")
+            if o is None:
+                continue
+            task_order[e.entity_id] = o
+            arrival.setdefault(o, e.sim_time)
+            flow_of[o] = tags.get("flow")
+            remaining[o] = remaining.get(o, 0) + 1
+        elif e.event_type == "TaskStateChanged" and e.payload.get("to") == "COMPLETED":
+            o = task_order.get(e.entity_id)
+            if o is not None:
+                remaining[o] -= 1
+                if remaining[o] == 0:
+                    done_at[o] = e.sim_time
+    out = []
+    for i, (t0, obj) in enumerate(changes):
+        t1 = changes[i + 1][0] if i + 1 < len(changes) else end_time
+        inst = [o for o, t in arrival.items() if t0 <= t < t1]
+        done = [o for o in inst if o in done_at]
+        by_flow: dict[str, list[float]] = {}
+        for o in done:
+            by_flow.setdefault(flow_of[o] or "-", []).append(done_at[o] - arrival[o])
+        seg = {
+            "from_s": t0, "to_s": t1, "objective": obj, "arrived": len(inst), "completed": len(done),
+            "flow_mean_by_flow": {k: _mean(v) for k, v in sorted(by_flow.items())},
+        }
+        if obj.get("kind") == "throughput":
+            seg["score"] = {"completed_per_hour": len(done) / ((t1 - t0) / 3600) if t1 > t0 else None}
+        elif obj.get("kind") == "priority":
+            target = obj.get("params", {}).get("flow")
+            seg["score"] = {"target_flow": target, "target_flow_mean_s": seg["flow_mean_by_flow"].get(target)}
+        out.append(seg)
+    return out
 
 
 def decision_metrics(events, policy_actor: str | None) -> dict:
@@ -154,6 +213,7 @@ def evaluate_run(run_dir: Path) -> dict:
         "decisions": decision_metrics(public, policy.get("actor_id")),
         "backlog_end": backlog_end,
         "structure": structure_metrics(public),
+        "objectives": objective_segments(public),
         "decision_cost": {
             k: usage.get(k)
             for k in ("model", "api_calls", "cache_hits", "input_tokens", "output_tokens",
@@ -181,7 +241,7 @@ def write_evaluation(run_dir: Path) -> dict:
 
 
 EVAL_COLUMNS = [
-    "scenario_id", "policy", "structure", "seed", "orders_arrived", "orders_completed", "completion_rate",
+    "scenario_id", "policy", "structure", "seed", "orders_arrived", "orders_completed", "orders_cancelled", "completion_rate",
     "flow_mean_s", "flow_median_s", "flow_p95_s", "censored_n", "backlog_end",
     "proposals", "invalid_proposal_rate", "fallback_proposals", "policy_decisions", "fallback_rate",
     "api_calls", "input_tokens", "output_tokens", "usd_estimate", "latency_ms_total", "boundary_ok",
@@ -196,6 +256,7 @@ def eval_row(ev: dict) -> dict:
         "scenario_id": ev["scenario_id"], "policy": ev["policy"], "structure": ev.get("structure_policy") or "",
         "seed": ev["seed"],
         "orders_arrived": o["orders_arrived"], "orders_completed": o["orders_completed"],
+        "orders_cancelled": o["orders_cancelled"],
         "completion_rate": o["completion_rate"],
         "flow_mean_s": o["order_flow_time_s"]["mean"], "flow_median_s": o["order_flow_time_s"]["median"],
         "flow_p95_s": o["order_flow_time_s"]["p95"], "censored_n": o["orders_censored"]["n"],
