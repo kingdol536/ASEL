@@ -377,14 +377,36 @@ class ClaudePolicy:
         u["latency_ms_total"] = round(u["latency_ms_total"], 1)
         return u
 
+    # -- 확장 지점 (구조 제어 정책 등, EXP-003 #45) ----------------------------------
+    def _system_prompt(self) -> str:
+        return PROMPTS[self.prompt_version]
+
+    def _output_schema(self) -> dict:
+        return OUTPUT_SCHEMA
+
+    def _parse(self, data: dict) -> list[ActionProposal]:
+        reason = str(data.get("reason", ""))[:300]
+        return [
+            ActionProposal(ActionKind.START_TASK, {"task": str(a["task"]), "entity": str(a["entity"])}, reason)
+            for a in data["assignments"]
+        ]
+
+    def _fallback_proposals(self, obs, affordances) -> list[ActionProposal]:
+        return self._fallback.decide(obs, affordances)
+
+    def _should_call(self, obs: Observation, affordances: list[ActionSpec]) -> bool:
+        return True
+
     def decide(self, obs: Observation, affordances: list[ActionSpec]) -> list[ActionProposal]:
+        if not self._should_call(obs, affordances):
+            return []
         user = self._user_message(obs, affordances)
         request = {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "system": PROMPTS[self.prompt_version],
+            "system": self._system_prompt(),
             "messages": [{"role": "user", "content": user}],
-            "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+            "output_config": {"effort": self.effort, "format": {"type": "json_schema", "schema": self._output_schema()}},
         }
         key_src = {"cache_tag": self.cache_tag, "request": request}
         key = hashlib.sha256(json.dumps(key_src, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -407,13 +429,7 @@ class ClaudePolicy:
         if entry.get("stop_reason") not in ("end_turn", "stop_sequence"):
             return self._fall_back(f"stop_{entry.get('stop_reason')}", obs, affordances)
         try:
-            data = json.loads(entry["text"])
-            assignments = data["assignments"]
-            reason = str(data.get("reason", ""))[:300]
-            props = [
-                ActionProposal(ActionKind.START_TASK, {"task": str(a["task"]), "entity": str(a["entity"])}, reason)
-                for a in assignments
-            ]
+            props = self._parse(json.loads(entry["text"]))
         except (ValueError, KeyError, TypeError):
             return self._fall_back("bad_output", obs, affordances)
         self._u["llm_decisions"] += 1
@@ -429,11 +445,11 @@ class ClaudePolicy:
         # 공개 로그의 이유는 'fallback' 하나로 둔다. 자세한 사유(타임아웃·예산·캐시 없음 등)는 사용량에만.
         # 녹화 실행의 실패와 재생 실행의 캐시 없음이 같은 사건 로그를 내도록 하기 위함이다.
         self._u["fallbacks"][reason] = self._u["fallbacks"].get(reason, 0) + 1
-        return [ActionProposal(p.action_type, p.params, "fallback") for p in self._fallback.decide(obs, affordances)]
+        return [ActionProposal(p.action_type, p.params, "fallback") for p in self._fallback_proposals(obs, affordances)]
 
     def _call(self, request: dict, user: str) -> tuple[dict | None, str]:
         # 최악 비용: 입력은 문자 수/2 토큰으로 넉넉히 추정(실제보다 크게), 출력은 max_tokens 전부
-        est_in = (len(PROMPTS[self.prompt_version]) + len(user)) // 2 + 500
+        est_in = (len(request["system"]) + len(user)) // 2 + 500
         attempts = self.max_retries + 1
         worst = estimate_cost_usd(self.model, est_in, self.max_tokens) * attempts
         ok, rid = self.guard.reserve(worst, attempts=attempts)
